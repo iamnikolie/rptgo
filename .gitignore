@@ -1,0 +1,7 @@
+/out/
+/rptgo
+/rpt2json
+/rpttree
+/reports/
+._*
+.DS_Store

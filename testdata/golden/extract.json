@@ -1,0 +1,136 @@
+{
+  "schema": "rptgo.extract/v1",
+  "report": "sales.json",
+  "title": "Sales by Region",
+  "printed": "2026-03-31 10:00:00",
+  "parameters": {
+    "MinAmount": 1000
+  },
+  "records": 6,
+  "columns": [
+    {
+      "name": "Invoice",
+      "value": "{Sales.InvoiceNo}"
+    },
+    {
+      "name": "Date",
+      "value": "{Sales.InvoiceDate}"
+    },
+    {
+      "name": "Rep",
+      "value": "{Sales.Rep}"
+    },
+    {
+      "name": "Amount",
+      "value": "{Sales.Amount}"
+    },
+    {
+      "name": "Margin",
+      "value": "{@Margin}"
+    },
+    {
+      "name": "Margin %",
+      "value": "{@MarginPct}"
+    },
+    {
+      "name": "Share %",
+      "value": "{@Share}"
+    },
+    {
+      "name": "Flag",
+      "value": "{@Flag}"
+    }
+  ],
+  "header": {
+    "Flagged from": 1000
+  },
+  "groups": [
+    {
+      "level": 1,
+      "by": "{Sales.Region}",
+      "value": "East",
+      "header": {
+        "Region": "East"
+      },
+      "rows": [
+        [
+          "B-201",
+          "2026-03-03",
+          "Sam Ortiz",
+          2500,
+          1000,
+          40,
+          100,
+          "*"
+        ],
+        [
+          "B-202",
+          "2026-03-06",
+          "Sam Ortiz",
+          0,
+          0,
+          0,
+          0,
+          ""
+        ]
+      ],
+      "footer": {
+        "Region total": 2,
+        "Amount": 2500,
+        "Margin": 1000
+      }
+    },
+    {
+      "level": 1,
+      "by": "{Sales.Region}",
+      "value": "North",
+      "header": {
+        "Region": "North"
+      },
+      "rows": [
+        [
+          "A-102",
+          "2026-03-01",
+          "ana diaz",
+          800,
+          0,
+          0,
+          28.571429,
+          ""
+        ],
+        [
+          "A-101",
+          "2026-03-02",
+          "KIM LEE",
+          1200,
+          300,
+          25,
+          42.857143,
+          "*"
+        ],
+        [
+          "A-103",
+          "2026-03-05",
+          "Kim Lee",
+          500,
+          -150,
+          -30,
+          17.857143,
+          ""
+        ]
+      ],
+      "footer": {
+        "Region total": 4,
+        "Amount": 2800,
+        "Margin": 350
+      }
+    }
+  ],
+  "footer": {
+    "Amount": 5300,
+    "Maximum of Amount": 2500
+  },
+  "warnings": [
+    "formula @Broken not evaluated: unexpected end of formula (x1)"
+  ]
+}

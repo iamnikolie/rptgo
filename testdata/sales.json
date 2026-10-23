@@ -1,0 +1,1268 @@
+{
+  "ReportTitle": "",
+  "Author": "Example",
+  "ReportComments": "Invoices by region, with margins and each invoice's share of its region.",
+  "CrVersion": 0,
+  "Language": "en-US",
+  "Page": {
+    "WidthTwips": 12240,
+    "HeightTwips": 15840,
+    "TopMarginTwips": 720,
+    "BottomMarginTwips": 720,
+    "LeftMarginTwips": 720,
+    "RightMarginTwips": 720,
+    "Orientation": "Portrait",
+    "PaperFromPrinter": false
+  },
+  "DataSources": [
+    {
+      "Name": "DataSource1",
+      "Kind": "Dataset",
+      "ServerName": null,
+      "DatabaseName": "SalesData",
+      "OdbcDsn": null,
+      "SqlQuery": null,
+      "Tables": [
+        {
+          "Name": "Sales",
+          "Alias": "Sales",
+          "Columns": [
+            {
+              "Name": "InvoiceNo",
+              "DataType": "String"
+            },
+            {
+              "Name": "InvoiceDate",
+              "DataType": "String"
+            },
+            {
+              "Name": "Region",
+              "DataType": "String"
+            },
+            {
+              "Name": "Rep",
+              "DataType": "String"
+            },
+            {
+              "Name": "Amount",
+              "DataType": "String"
+            },
+            {
+              "Name": "Cost",
+              "DataType": "String"
+            },
+            {
+              "Name": "Status",
+              "DataType": "String"
+            },
+            {
+              "Name": "Notes",
+              "DataType": "String"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "TableLinks": [],
+  "Fields": [
+    {
+      "$type": "DatabaseField",
+      "TableName": "Sales",
+      "ColumnName": "InvoiceNo",
+      "DataType": "String",
+      "Name": "InvoiceNo",
+      "Kind": ""
+    },
+    {
+      "$type": "DatabaseField",
+      "TableName": "Sales",
+      "ColumnName": "InvoiceDate",
+      "DataType": "DateTime",
+      "Name": "InvoiceDate",
+      "Kind": ""
+    },
+    {
+      "$type": "DatabaseField",
+      "TableName": "Sales",
+      "ColumnName": "Region",
+      "DataType": "String",
+      "Name": "Region",
+      "Kind": ""
+    },
+    {
+      "$type": "DatabaseField",
+      "TableName": "Sales",
+      "ColumnName": "Rep",
+      "DataType": "String",
+      "Name": "Rep",
+      "Kind": ""
+    },
+    {
+      "$type": "DatabaseField",
+      "TableName": "Sales",
+      "ColumnName": "Amount",
+      "DataType": "Currency",
+      "Name": "Amount",
+      "Kind": ""
+    },
+    {
+      "$type": "DatabaseField",
+      "TableName": "Sales",
+      "ColumnName": "Cost",
+      "DataType": "Currency",
+      "Name": "Cost",
+      "Kind": ""
+    },
+    {
+      "$type": "DatabaseField",
+      "TableName": "Sales",
+      "ColumnName": "Status",
+      "DataType": "String",
+      "Name": "Status",
+      "Kind": ""
+    },
+    {
+      "$type": "FormulaField",
+      "FormulaText": "{Sales.Amount} - {Sales.Cost}",
+      "Syntax": "",
+      "ResultType": "Number",
+      "Name": "Margin",
+      "Kind": ""
+    },
+    {
+      "$type": "FormulaField",
+      "FormulaText": "if {Sales.Amount} <> 0 then\r\n    formula = {@Margin} / {Sales.Amount} * 100\r\nend if",
+      "Syntax": "",
+      "ResultType": "Number",
+      "Name": "MarginPct",
+      "Kind": ""
+    },
+    {
+      "$type": "FormulaField",
+      "FormulaText": "{Sales.Amount} / Sum({Sales.Amount}, {Sales.Region}) * 100",
+      "Syntax": "",
+      "ResultType": "Number",
+      "Name": "Share",
+      "Kind": ""
+    },
+    {
+      "$type": "FormulaField",
+      "FormulaText": "if {Sales.Amount} >= {?MinAmount} then \"*\" else \"\"",
+      "Syntax": "",
+      "ResultType": "String",
+      "Name": "Flag",
+      "Kind": ""
+    },
+    {
+      "$type": "FormulaField",
+      "FormulaText": "ProperCase({Sales.Rep}) & Chr(9) & {Sales.Notes}",
+      "Syntax": "",
+      "ResultType": "String",
+      "Name": "Legacy",
+      "Kind": ""
+    },
+    {
+      "$type": "FormulaField",
+      "FormulaText": "Round({Sales.Amount}, 2) +",
+      "Syntax": "",
+      "ResultType": "Number",
+      "Name": "Broken",
+      "Kind": ""
+    },
+    {
+      "$type": "ParameterField",
+      "PromptText": "Flag invoices of at least",
+      "DataType": "Number",
+      "AllowMultipleValues": false,
+      "DefaultValue": "1000",
+      "PickListValues": [],
+      "Name": "MinAmount",
+      "Kind": ""
+    },
+    {
+      "$type": "RunningTotalField",
+      "DataType": "Currency",
+      "SummarizedFieldName": "Amount",
+      "Function": "Sum",
+      "EvaluateCondition": null,
+      "ResetCondition": "Group:0",
+      "Name": "RegionAmt",
+      "Kind": ""
+    },
+    {
+      "$type": "RunningTotalField",
+      "DataType": "Currency",
+      "SummarizedFieldName": "@Margin",
+      "Function": "Sum",
+      "EvaluateCondition": null,
+      "ResetCondition": "Group:0",
+      "Name": "RegionMargin",
+      "Kind": ""
+    },
+    {
+      "$type": "RunningTotalField",
+      "DataType": "Currency",
+      "SummarizedFieldName": "Amount",
+      "Function": "Sum",
+      "EvaluateCondition": null,
+      "ResetCondition": null,
+      "Name": "GrandAmt",
+      "Kind": ""
+    },
+    {
+      "$type": "RunningTotalField",
+      "DataType": "Currency",
+      "SummarizedFieldName": "Amount",
+      "Function": "Count",
+      "EvaluateCondition": null,
+      "ResetCondition": null,
+      "Name": "Big",
+      "Kind": ""
+    }
+  ],
+  "Groups": [
+    {
+      "Level": 0,
+      "FieldName": "Region",
+      "TableName": "Sales",
+      "SortOrder": "Ascending",
+      "Condition": "EachValue",
+      "RepeatGroupHeader": false,
+      "TopN": null
+    }
+  ],
+  "SortFields": [
+    {
+      "FieldName": "InvoiceDate",
+      "TableName": "Sales",
+      "Direction": "Ascending"
+    }
+  ],
+  "Sections": [
+    {
+      "Type": "ReportHeader",
+      "GroupLevel": 0,
+      "HeightTwips": 720,
+      "Suppress": false,
+      "NewPageBefore": false,
+      "NewPageAfter": false,
+      "ResetPageNumber": false,
+      "Underlay": false,
+      "RepeatGroupHeader": false,
+      "SuppressFormula": null,
+      "NewPageBeforeFormula": null,
+      "NewPageAfterFormula": null,
+      "BackColorFormula": null,
+      "BackColor": null,
+      "Objects": [
+        {
+          "$type": "TextObject",
+          "Text": "Sales by Region",
+          "Name": "Text1",
+          "Bounds": {
+            "Left": 0,
+            "Top": 0,
+            "Width": 10800,
+            "Height": 360
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 14.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Center",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "TextObject",
+          "Text": "Flagged from:",
+          "Name": "Text2",
+          "Bounds": {
+            "Left": 0,
+            "Top": 420,
+            "Width": 1400,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "?MinAmount",
+          "SummaryFunction": null,
+          "Name": "MinAmount1",
+          "Bounds": {
+            "Left": 1440,
+            "Top": 420,
+            "Width": 1200,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "#,##0.00",
+            "Conditions": []
+          }
+        }
+      ]
+    },
+    {
+      "Type": "PageHeader",
+      "GroupLevel": 0,
+      "HeightTwips": 480,
+      "Suppress": false,
+      "NewPageBefore": false,
+      "NewPageAfter": false,
+      "ResetPageNumber": false,
+      "Underlay": false,
+      "RepeatGroupHeader": false,
+      "SuppressFormula": null,
+      "NewPageBeforeFormula": null,
+      "NewPageAfterFormula": null,
+      "BackColorFormula": null,
+      "BackColor": null,
+      "Objects": [
+        {
+          "$type": "TextObject",
+          "Text": "Invoice",
+          "Name": "Text3",
+          "Bounds": {
+            "Left": 0,
+            "Top": 120,
+            "Width": 1200,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "TextObject",
+          "Text": "Date",
+          "Name": "Text4",
+          "Bounds": {
+            "Left": 1300,
+            "Top": 120,
+            "Width": 1000,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "TextObject",
+          "Text": "Rep",
+          "Name": "Text5",
+          "Bounds": {
+            "Left": 2400,
+            "Top": 120,
+            "Width": 1500,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "TextObject",
+          "Text": "Amount",
+          "Name": "Text6",
+          "Bounds": {
+            "Left": 4000,
+            "Top": 120,
+            "Width": 1300,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Right",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "TextObject",
+          "Text": "Margin",
+          "Name": "Text7",
+          "Bounds": {
+            "Left": 5400,
+            "Top": 120,
+            "Width": 1300,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Right",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "TextObject",
+          "Text": "Margin\r\n%",
+          "Name": "Text8",
+          "Bounds": {
+            "Left": 6800,
+            "Top": 0,
+            "Width": 900,
+            "Height": 360
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Right",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "TextObject",
+          "Text": "Share %",
+          "Name": "Text9",
+          "Bounds": {
+            "Left": 7800,
+            "Top": 120,
+            "Width": 900,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Right",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        }
+      ]
+    },
+    {
+      "Type": "GroupHeader",
+      "GroupLevel": 0,
+      "HeightTwips": 300,
+      "Suppress": false,
+      "NewPageBefore": false,
+      "NewPageAfter": false,
+      "ResetPageNumber": false,
+      "Underlay": false,
+      "RepeatGroupHeader": false,
+      "SuppressFormula": null,
+      "NewPageBeforeFormula": null,
+      "NewPageAfterFormula": null,
+      "BackColorFormula": null,
+      "BackColor": null,
+      "Objects": [
+        {
+          "$type": "TextObject",
+          "Text": "Region:",
+          "Name": "Text10",
+          "Bounds": {
+            "Left": 0,
+            "Top": 30,
+            "Width": 800,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "Region",
+          "SummaryFunction": null,
+          "Name": "Region1",
+          "Bounds": {
+            "Left": 850,
+            "Top": 30,
+            "Width": 2000,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        }
+      ]
+    },
+    {
+      "Type": "Details",
+      "GroupLevel": 0,
+      "HeightTwips": 260,
+      "Suppress": false,
+      "NewPageBefore": false,
+      "NewPageAfter": false,
+      "ResetPageNumber": false,
+      "Underlay": false,
+      "RepeatGroupHeader": false,
+      "SuppressFormula": "{Sales.Status} = \"Void\"",
+      "NewPageBeforeFormula": null,
+      "NewPageAfterFormula": null,
+      "BackColorFormula": null,
+      "BackColor": null,
+      "Objects": [
+        {
+          "$type": "FieldObject",
+          "FieldName": "InvoiceNo",
+          "SummaryFunction": null,
+          "Name": "InvoiceNo1",
+          "Bounds": {
+            "Left": 0,
+            "Top": 10,
+            "Width": 1200,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "InvoiceDate",
+          "SummaryFunction": null,
+          "Name": "InvoiceDate1",
+          "Bounds": {
+            "Left": 1300,
+            "Top": 10,
+            "Width": 1000,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "M'/'d'/'yy",
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "Rep",
+          "SummaryFunction": null,
+          "Name": "Rep1",
+          "Bounds": {
+            "Left": 2400,
+            "Top": 10,
+            "Width": 1500,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "Amount",
+          "SummaryFunction": null,
+          "Name": "Amount1",
+          "Bounds": {
+            "Left": 4000,
+            "Top": 10,
+            "Width": 1300,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "#,##0.00",
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "@Margin",
+          "SummaryFunction": null,
+          "Name": "Margin1",
+          "Bounds": {
+            "Left": 5400,
+            "Top": 10,
+            "Width": 1300,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "#,##0.00",
+            "Conditions": [],
+            "SuppressIfZero": true,
+            "NegativeFormat": 3
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "@MarginPct",
+          "SummaryFunction": null,
+          "Name": "MarginPct1",
+          "Bounds": {
+            "Left": 6800,
+            "Top": 10,
+            "Width": 900,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "0.0",
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "@Share",
+          "SummaryFunction": null,
+          "Name": "Share1",
+          "Bounds": {
+            "Left": 7800,
+            "Top": 10,
+            "Width": 900,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "0",
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "@Flag",
+          "SummaryFunction": null,
+          "Name": "Flag1",
+          "Bounds": {
+            "Left": 8800,
+            "Top": 10,
+            "Width": 300,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "Cost",
+          "SummaryFunction": null,
+          "Name": "Cost1",
+          "Bounds": {
+            "Left": 9200,
+            "Top": 10,
+            "Width": 1000,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": [],
+            "Suppress": true
+          }
+        }
+      ]
+    },
+    {
+      "Type": "GroupFooter",
+      "GroupLevel": 0,
+      "HeightTwips": 400,
+      "Suppress": false,
+      "NewPageBefore": false,
+      "NewPageAfter": false,
+      "ResetPageNumber": false,
+      "Underlay": false,
+      "RepeatGroupHeader": false,
+      "SuppressFormula": null,
+      "NewPageBeforeFormula": null,
+      "NewPageAfterFormula": "not OnLastRecord",
+      "BackColorFormula": null,
+      "BackColor": null,
+      "Objects": [
+        {
+          "$type": "TextObject",
+          "Text": "Region total:",
+          "Name": "Text11",
+          "Bounds": {
+            "Left": 0,
+            "Top": 60,
+            "Width": 1200,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "InvoiceNo",
+          "SummaryFunction": "Count",
+          "Name": "InvoiceNo2",
+          "Bounds": {
+            "Left": 1300,
+            "Top": 60,
+            "Width": 1000,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "0",
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "#RegionAmt",
+          "SummaryFunction": null,
+          "Name": "RegionAmt1",
+          "Bounds": {
+            "Left": 4000,
+            "Top": 60,
+            "Width": 1300,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 1,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "#,##0.00",
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "#RegionMargin",
+          "SummaryFunction": null,
+          "Name": "RegionMargin1",
+          "Bounds": {
+            "Left": 5400,
+            "Top": 60,
+            "Width": 1300,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 1,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "#,##0.00",
+            "Conditions": []
+          }
+        }
+      ]
+    },
+    {
+      "Type": "ReportFooter",
+      "GroupLevel": 0,
+      "HeightTwips": 900,
+      "Suppress": false,
+      "NewPageBefore": false,
+      "NewPageAfter": false,
+      "ResetPageNumber": false,
+      "Underlay": false,
+      "RepeatGroupHeader": false,
+      "SuppressFormula": null,
+      "NewPageBeforeFormula": null,
+      "NewPageAfterFormula": null,
+      "BackColorFormula": null,
+      "BackColor": null,
+      "Objects": [
+        {
+          "$type": "TextObject",
+          "Text": "Grand total:",
+          "Name": "Text12",
+          "Bounds": {
+            "Left": 0,
+            "Top": 60,
+            "Width": 1200,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": true,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "#GrandAmt",
+          "SummaryFunction": null,
+          "Name": "GrandAmt1",
+          "Bounds": {
+            "Left": 4000,
+            "Top": 60,
+            "Width": 1300,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 2,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "#,##0.00",
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "Amount",
+          "SummaryFunction": "Maximum",
+          "Name": "Amount2",
+          "Bounds": {
+            "Left": 5400,
+            "Top": 60,
+            "Width": 1300,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": "#,##0.00",
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "ChartObject",
+          "Title": "Amount by region",
+          "Kind": "Bar",
+          "CategoryFields": [
+            "Region"
+          ],
+          "CategoryConditions": [],
+          "SeriesField": "Amount",
+          "SeriesFunction": "Sum",
+          "Name": "Graph1",
+          "Bounds": {
+            "Left": 0,
+            "Top": 400,
+            "Width": 6000,
+            "Height": 400
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        }
+      ]
+    },
+    {
+      "Type": "PageFooter",
+      "GroupLevel": 0,
+      "HeightTwips": 300,
+      "Suppress": false,
+      "NewPageBefore": false,
+      "NewPageAfter": false,
+      "ResetPageNumber": false,
+      "Underlay": false,
+      "RepeatGroupHeader": false,
+      "SuppressFormula": null,
+      "NewPageBeforeFormula": null,
+      "NewPageAfterFormula": null,
+      "BackColorFormula": null,
+      "BackColor": null,
+      "Objects": [
+        {
+          "$type": "FieldObject",
+          "FieldName": "Print Date",
+          "SummaryFunction": null,
+          "Name": "PrintDate1",
+          "Bounds": {
+            "Left": 0,
+            "Top": 30,
+            "Width": 1200,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Default",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        },
+        {
+          "$type": "FieldObject",
+          "FieldName": "Page N of M",
+          "SummaryFunction": null,
+          "Name": "PageNofM1",
+          "Bounds": {
+            "Left": 8800,
+            "Top": 30,
+            "Width": 2000,
+            "Height": 240
+          },
+          "Format": {
+            "FontName": "Arial",
+            "FontSize": 8.0,
+            "Bold": false,
+            "Italic": false,
+            "Underline": false,
+            "HAlign": "Right",
+            "BorderLeft": 0,
+            "BorderRight": 0,
+            "BorderTop": 0,
+            "BorderBottom": 0,
+            "BorderWidthTwips": 0,
+            "CanGrow": false,
+            "SuppressIfBlank": false,
+            "FormatString": null,
+            "Conditions": []
+          }
+        }
+      ]
+    }
+  ],
+  "RecordSelectionFormula": "",
+  "GroupSelectionFormula": ""
+}

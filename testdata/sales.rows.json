@@ -1,0 +1,56 @@
+[
+  {
+    "InvoiceNo": "A-101",
+    "InvoiceDate": "2026-03-02",
+    "Region": "North",
+    "Rep": "KIM LEE",
+    "Amount": 1200.0,
+    "Cost": 900.0,
+    "Status": "Open"
+  },
+  {
+    "InvoiceNo": "A-102",
+    "InvoiceDate": "2026-03-01",
+    "Region": "North",
+    "Rep": "ana diaz",
+    "Amount": 800.0,
+    "Cost": 800.0,
+    "Status": "Paid"
+  },
+  {
+    "InvoiceNo": "A-103",
+    "InvoiceDate": "2026-03-05",
+    "Region": "North",
+    "Rep": "Kim Lee",
+    "Amount": 500.0,
+    "Cost": 650.0,
+    "Status": "Open"
+  },
+  {
+    "InvoiceNo": "A-104",
+    "InvoiceDate": "2026-03-04",
+    "Region": "North",
+    "Rep": "Kim Lee",
+    "Amount": 300.0,
+    "Cost": 100.0,
+    "Status": "Void"
+  },
+  {
+    "InvoiceNo": "B-201",
+    "InvoiceDate": "2026-03-03",
+    "Region": "East",
+    "Rep": "Sam Ortiz",
+    "Amount": 2500.0,
+    "Cost": 1500.0,
+    "Status": "Open"
+  },
+  {
+    "InvoiceNo": "B-202",
+    "InvoiceDate": "2026-03-06",
+    "Region": "East",
+    "Rep": "Sam Ortiz",
+    "Amount": 0,
+    "Cost": 0,
+    "Status": "Open"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "severity": "error",
+    "code": "formula-syntax",
+    "where": "{@Broken}",
+    "message": "rptgo cannot parse it (unexpected end of formula); it prints blank"
+  },
+  {
+    "severity": "error",
+    "code": "chart",
+    "where": "Report Footer Graph1",
+    "message": "chart \"Amount by region\" is not rendered"
+  },
+  {
+    "severity": "info",
+    "code": "unused",
+    "where": "{@Legacy}",
+    "message": "defined but not printed or used"
+  },
+  {
+    "severity": "info",
+    "code": "unused",
+    "where": "{@Broken}",
+    "message": "defined but not printed or used"
+  },
+  {
+    "severity": "info",
+    "code": "unused",
+    "where": "{#Big}",
+    "message": "defined but not printed or used"
+  }
+]

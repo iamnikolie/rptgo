@@ -386,6 +386,9 @@ func (p *parser) primary() (node, error) {
 		}
 		return ident{t.text}, nil
 	}
+	if t.kind == tEOF {
+		return nil, fmt.Errorf("unexpected end of formula")
+	}
 	return nil, fmt.Errorf("unexpected %q", t.text)
 }
 
@@ -622,7 +625,79 @@ func (e *evaluator) binary(n binary) (any, error) {
 	return nil, fmt.Errorf("operator %s", n.op)
 }
 
+// builtinFuncs is every function call() implements; audit reports the rest.
+// A test keeps it in step with the cases below.
+var builtinFuncs = map[string]bool{
+	"iif": true, "isnull": true, "cstr": true, "totext": true, "tonumber": true, "val": true, "cdbl": true,
+	"length": true, "len": true, "trim": true, "trimleft": true, "ltrim": true, "trimright": true, "rtrim": true,
+	"propercase": true, "replace": true, "instr": true, "uppercase": true, "ucase": true, "lowercase": true,
+	"lcase": true, "left": true, "right": true, "mid": true, "chrw": true, "chr": true, "round": true,
+	"roundup": true, "truncate": true, "int": true, "fix": true, "abs": true, "year": true, "month": true,
+	"day": true, "dayofweek": true, "weekday": true, "monthname": true, "weekdayname": true, "date": true,
+	"cdate": true, "datevalue": true, "datediff": true, "dateadd": true, "datepart": true, "towords": true,
+	"switch": true, "previous": true, "next": true, "previousisnull": true, "nextisnull": true,
+	"groupname": true, "sum": true, "count": true, "average": true, "maximum": true, "minimum": true,
+	"distinctcount": true,
+}
+
+// recordCall evaluates the functions that read other records; ok is false
+// for every other call.
+func (e *evaluator) recordCall(n call) (v any, ok bool, err error) {
+	env, isRec := e.env.(recordEnv)
+	if !isRec || len(n.args) == 0 {
+		return nil, false, nil
+	}
+	ref, isRef := n.args[0].(fieldRef)
+	switch n.fn {
+	case "previous", "next", "previousisnull", "nextisnull":
+		if !isRef {
+			return nil, true, fmt.Errorf("%s() takes a field", n.fn)
+		}
+		off := 1
+		if strings.HasPrefix(n.fn, "previous") {
+			off = -1
+		}
+		v, err := env.atOffset(ref.ref, off)
+		if strings.HasSuffix(n.fn, "isnull") {
+			return v == nil, true, err
+		}
+		return v, true, err
+	case "groupname":
+		if !isRef {
+			return nil, true, fmt.Errorf("groupname() takes a field")
+		}
+		v, err := env.Lookup(ref.ref)
+		return toText(v), true, err
+	case "sum", "count", "average", "maximum", "minimum", "distinctcount":
+		if !isRef {
+			return nil, true, fmt.Errorf("%s() takes a field", n.fn)
+		}
+		group := ""
+		if len(n.args) > 1 {
+			g, ok := n.args[1].(fieldRef)
+			if !ok {
+				return nil, true, fmt.Errorf("%s(): the group is a field", n.fn)
+			}
+			group = g.ref
+		}
+		v, err := env.aggregate(n.fn, ref.ref, group)
+		return v, true, err
+	}
+	return nil, false, nil
+}
+
+// recordEnv is an Env that can look at other records: Previous, Next, and
+// summaries over the report or a group (Sum({x}, {g}), Count({x}), ...).
+type recordEnv interface {
+	Env
+	atOffset(ref string, offset int) (any, error)
+	aggregate(fn, ref, group string) (any, error)
+}
+
 func (e *evaluator) call(n call) (any, error) {
+	if v, ok, err := e.recordCall(n); ok {
+		return v, err
+	}
 	args := make([]any, len(n.args))
 	for i, a := range n.args {
 		if n.fn == "iif" && i > 0 {
@@ -662,6 +737,34 @@ func (e *evaluator) call(n call) (any, error) {
 		return float64(len([]rune(toText(arg(0))))), nil
 	case "trim":
 		return strings.TrimSpace(toText(arg(0))), nil
+	case "trimleft", "ltrim":
+		return strings.TrimLeftFunc(toText(arg(0)), unicode.IsSpace), nil
+	case "trimright", "rtrim":
+		return strings.TrimRightFunc(toText(arg(0)), unicode.IsSpace), nil
+	case "propercase":
+		words := strings.Fields(strings.ToLower(toText(arg(0))))
+		for i, w := range words {
+			r := []rune(w)
+			r[0] = unicode.ToUpper(r[0])
+			words[i] = string(r)
+		}
+		return strings.Join(words, " "), nil
+	case "replace":
+		return strings.ReplaceAll(toText(arg(0)), toText(arg(1)), toText(arg(2))), nil
+	case "instr":
+		if len(args) == 3 { // InStr(start, string, find)
+			s := []rune(toText(args[1]))
+			start := clamp(int(num(args[0]))-1, 0, len(s))
+			if i := strings.Index(string(s[start:]), toText(args[2])); i >= 0 {
+				return float64(start + len([]rune(string(s[start:])[:i])) + 1), nil
+			}
+			return 0.0, nil
+		}
+		s := toText(arg(0))
+		if i := strings.Index(s, toText(arg(1))); i >= 0 {
+			return float64(len([]rune(s[:i])) + 1), nil
+		}
+		return 0.0, nil
 	case "uppercase", "ucase":
 		return strings.ToUpper(toText(arg(0))), nil
 	case "lowercase", "lcase":

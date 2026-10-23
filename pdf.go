@@ -40,7 +40,7 @@ func (e *Engine) PDF(title, fontDir string) ([]byte, error) {
 	pw, ph := float64(e.rpt.Page.WidthTwips)/20, float64(e.rpt.Page.HeightTwips)/20
 	w.pageW = pw
 	w.pdf.Start(gopdf.Config{Unit: gopdf.UnitPT, PageSize: gopdf.Rect{W: pw, H: ph}})
-	w.pdf.SetInfo(gopdf.PdfInfo{Title: title, Creator: "crystal-go", Producer: "crystal-go"})
+	w.pdf.SetInfo(gopdf.PdfInfo{Title: title, Creator: "rptgo", Producer: "rptgo"})
 	for i, p := range e.pages {
 		w.pdf.AddPage()
 		w.pdf.SetFillColor(0, 0, 0)

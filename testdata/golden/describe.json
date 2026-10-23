@@ -1,0 +1,513 @@
+{
+  "schema": "rptgo.describe/v1",
+  "report": "sales.json",
+  "title": "Sales by Region",
+  "author": "Example",
+  "comments": "Invoices by region, with margins and each invoice's share of its region.",
+  "page": {
+    "paper": "Letter",
+    "orientation": "Portrait",
+    "widthInches": 8.5,
+    "heightInches": 11,
+    "marginsInches": [
+      0.5,
+      0.5,
+      0.5,
+      0.5
+    ]
+  },
+  "data": {
+    "sources": [
+      {
+        "name": "DataSource1",
+        "kind": "Dataset",
+        "database": "SalesData",
+        "tables": [
+          {
+            "name": "Sales",
+            "fields": [
+              {
+                "name": "InvoiceNo",
+                "type": "String",
+                "used": true
+              },
+              {
+                "name": "InvoiceDate",
+                "type": "DateTime",
+                "used": true
+              },
+              {
+                "name": "Region",
+                "type": "String",
+                "used": true
+              },
+              {
+                "name": "Rep",
+                "type": "String",
+                "used": true
+              },
+              {
+                "name": "Amount",
+                "type": "Currency",
+                "used": true
+              },
+              {
+                "name": "Cost",
+                "type": "Currency",
+                "used": true
+              },
+              {
+                "name": "Status",
+                "type": "String",
+                "used": true
+              },
+              {
+                "name": "Notes",
+                "type": "String",
+                "used": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "parameters": [
+    {
+      "name": "MinAmount",
+      "type": "Number",
+      "prompt": "Flag invoices of at least",
+      "default": "1000",
+      "usedBy": [
+        "{@Flag}",
+        "Report Header"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "level": 1,
+      "field": "{Sales.Region}",
+      "sort": "Ascending",
+      "by": "EachValue"
+    }
+  ],
+  "sorts": [
+    {
+      "field": "{Sales.InvoiceDate}",
+      "direction": "Ascending"
+    }
+  ],
+  "columns": [
+    {
+      "name": "Invoice",
+      "heading": true,
+      "value": "{Sales.InvoiceNo}",
+      "type": "String",
+      "section": "Details"
+    },
+    {
+      "name": "Date",
+      "heading": true,
+      "value": "{Sales.InvoiceDate}",
+      "type": "DateTime",
+      "format": "M'/'d'/'yy",
+      "section": "Details",
+      "totals": [
+        {
+          "section": "Group Footer #1",
+          "value": "Count of {Sales.InvoiceNo}"
+        }
+      ]
+    },
+    {
+      "name": "Rep",
+      "heading": true,
+      "value": "{Sales.Rep}",
+      "type": "String",
+      "section": "Details"
+    },
+    {
+      "name": "Amount",
+      "heading": true,
+      "value": "{Sales.Amount}",
+      "type": "Currency",
+      "format": "#,##0.00",
+      "section": "Details",
+      "totals": [
+        {
+          "section": "Group Footer #1",
+          "value": "{#RegionAmt}"
+        },
+        {
+          "section": "Report Footer",
+          "value": "{#GrandAmt}"
+        }
+      ]
+    },
+    {
+      "name": "Margin",
+      "heading": true,
+      "value": "{@Margin}",
+      "type": "Number",
+      "format": "#,##0.00",
+      "blankIfZero": true,
+      "section": "Details",
+      "totals": [
+        {
+          "section": "Group Footer #1",
+          "value": "{#RegionMargin}"
+        },
+        {
+          "section": "Report Footer",
+          "value": "Maximum of {Sales.Amount}"
+        }
+      ]
+    },
+    {
+      "name": "Margin %",
+      "heading": true,
+      "value": "{@MarginPct}",
+      "type": "Number",
+      "format": "0.0",
+      "section": "Details"
+    },
+    {
+      "name": "Share %",
+      "heading": true,
+      "value": "{@Share}",
+      "type": "Number",
+      "format": "0",
+      "section": "Details"
+    },
+    {
+      "name": "Flag",
+      "heading": false,
+      "value": "{@Flag}",
+      "type": "String",
+      "section": "Details"
+    }
+  ],
+  "formulas": [
+    {
+      "name": "{@Margin}",
+      "syntax": "Crystal",
+      "type": "Number",
+      "text": "{Sales.Amount} - {Sales.Cost}",
+      "uses": [
+        "{Sales.Amount}",
+        "{Sales.Cost}"
+      ],
+      "usedBy": [
+        "{@MarginPct}",
+        "{#RegionMargin}",
+        "Details"
+      ]
+    },
+    {
+      "name": "{@MarginPct}",
+      "syntax": "Basic",
+      "type": "Number",
+      "text": "if {Sales.Amount} <> 0 then\n    formula = {@Margin} / {Sales.Amount} * 100\nend if",
+      "uses": [
+        "{Sales.Amount}",
+        "{@Margin}"
+      ],
+      "usedBy": [
+        "Details"
+      ]
+    },
+    {
+      "name": "{@Share}",
+      "syntax": "Crystal",
+      "type": "Number",
+      "text": "{Sales.Amount} / Sum({Sales.Amount}, {Sales.Region}) * 100",
+      "uses": [
+        "{Sales.Amount}",
+        "{Sales.Region}"
+      ],
+      "usedBy": [
+        "Details"
+      ]
+    },
+    {
+      "name": "{@Flag}",
+      "syntax": "Crystal",
+      "type": "String",
+      "text": "if {Sales.Amount} >= {?MinAmount} then \"*\" else \"\"",
+      "uses": [
+        "{Sales.Amount}",
+        "{?MinAmount}"
+      ],
+      "usedBy": [
+        "Details"
+      ]
+    },
+    {
+      "name": "{@Legacy}",
+      "syntax": "Crystal",
+      "type": "String",
+      "text": "ProperCase({Sales.Rep}) & Chr(9) & {Sales.Notes}",
+      "uses": [
+        "{Sales.Rep}",
+        "{Sales.Notes}"
+      ]
+    },
+    {
+      "name": "{@Broken}",
+      "syntax": "Crystal",
+      "type": "Number",
+      "text": "Round({Sales.Amount}, 2) +",
+      "uses": [
+        "{Sales.Amount}"
+      ]
+    }
+  ],
+  "runningTotals": [
+    {
+      "name": "{#RegionAmt}",
+      "function": "Sum",
+      "of": "{Sales.Amount}",
+      "reset": "on change of group #1 ({Sales.Region})",
+      "evaluate": "every record",
+      "usedBy": [
+        "Group Footer #1"
+      ]
+    },
+    {
+      "name": "{#RegionMargin}",
+      "function": "Sum",
+      "of": "{@Margin}",
+      "reset": "on change of group #1 ({Sales.Region})",
+      "evaluate": "every record",
+      "usedBy": [
+        "Group Footer #1"
+      ]
+    },
+    {
+      "name": "{#GrandAmt}",
+      "function": "Sum",
+      "of": "{Sales.Amount}",
+      "reset": "never",
+      "evaluate": "every record",
+      "usedBy": [
+        "Report Footer"
+      ]
+    },
+    {
+      "name": "{#Big}",
+      "function": "Count",
+      "of": "{Sales.Amount}",
+      "reset": "never",
+      "evaluate": "every record"
+    }
+  ],
+  "sections": [
+    {
+      "name": "Report Header",
+      "kind": "ReportHeader",
+      "heightInches": 0.5,
+      "rows": [
+        [
+          {
+            "text": "Sales by Region",
+            "align": "center",
+            "style": "14 pt bold"
+          }
+        ],
+        [
+          {
+            "text": "Flagged from:"
+          },
+          {
+            "value": "{?MinAmount}",
+            "format": "#,##0.00"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "Page Header",
+      "kind": "PageHeader",
+      "heightInches": 0.33,
+      "rows": [
+        [
+          {
+            "text": "Invoice",
+            "style": "bold"
+          },
+          {
+            "text": "Date",
+            "style": "bold"
+          },
+          {
+            "text": "Rep",
+            "style": "bold"
+          },
+          {
+            "text": "Amount",
+            "align": "right",
+            "style": "bold"
+          },
+          {
+            "text": "Margin",
+            "align": "right",
+            "style": "bold"
+          },
+          {
+            "text": "Margin\n%",
+            "align": "right",
+            "style": "bold"
+          },
+          {
+            "text": "Share %",
+            "align": "right",
+            "style": "bold"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "Group Header #1",
+      "kind": "GroupHeader",
+      "group": "{Sales.Region}",
+      "heightInches": 0.21,
+      "rows": [
+        [
+          {
+            "text": "Region:",
+            "style": "bold"
+          },
+          {
+            "value": "{Sales.Region}",
+            "style": "bold"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "Details",
+      "kind": "Details",
+      "heightInches": 0.18,
+      "hiddenWhen": "{Sales.Status} = \"Void\"",
+      "rows": [
+        [
+          {
+            "value": "{Sales.InvoiceNo}"
+          },
+          {
+            "value": "{Sales.InvoiceDate}",
+            "format": "M'/'d'/'yy"
+          },
+          {
+            "value": "{Sales.Rep}"
+          },
+          {
+            "value": "{Sales.Amount}",
+            "format": "#,##0.00"
+          },
+          {
+            "value": "{@Margin}",
+            "format": "#,##0.00",
+            "blankIfZero": true
+          },
+          {
+            "value": "{@MarginPct}",
+            "format": "0.0"
+          },
+          {
+            "value": "{@Share}",
+            "format": "0"
+          },
+          {
+            "value": "{@Flag}"
+          }
+        ]
+      ],
+      "hiddenObjects": 1
+    },
+    {
+      "name": "Group Footer #1",
+      "kind": "GroupFooter",
+      "group": "{Sales.Region}",
+      "heightInches": 0.28,
+      "newPageAfter": "when not OnLastRecord",
+      "rows": [
+        [
+          {
+            "text": "Region total:",
+            "style": "bold"
+          },
+          {
+            "value": "Count of {Sales.InvoiceNo}",
+            "format": "0"
+          },
+          {
+            "value": "{#RegionAmt}",
+            "format": "#,##0.00"
+          },
+          {
+            "value": "{#RegionMargin}",
+            "format": "#,##0.00"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "Report Footer",
+      "kind": "ReportFooter",
+      "heightInches": 0.63,
+      "rows": [
+        [
+          {
+            "text": "Grand total:",
+            "style": "bold"
+          },
+          {
+            "value": "{#GrandAmt}",
+            "format": "#,##0.00"
+          },
+          {
+            "value": "Maximum of {Sales.Amount}",
+            "format": "#,##0.00"
+          }
+        ],
+        [
+          {
+            "object": "Bar chart \"Amount by region\": Sum of {Sales.Amount} by {Sales.Region}"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "Page Footer",
+      "kind": "PageFooter",
+      "heightInches": 0.21,
+      "rows": [
+        [
+          {
+            "value": "[Print Date]"
+          },
+          {
+            "value": "[Page N of M]",
+            "align": "right"
+          }
+        ]
+      ]
+    }
+  ],
+  "caveats": [
+    {
+      "severity": "error",
+      "code": "formula-syntax",
+      "where": "{@Broken}",
+      "message": "rptgo cannot parse it (unexpected end of formula); it prints blank"
+    },
+    {
+      "severity": "error",
+      "code": "chart",
+      "where": "Report Footer Graph1",
+      "message": "chart \"Amount by region\" is not rendered"
+    }
+  ]
+}

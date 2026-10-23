@@ -19,16 +19,28 @@ type Engine struct {
 	printed  time.Time
 	formulas map[string]node
 	rtots    []runTotal
+	// params are the report's parameter values, {?Name}, by lower-case name.
+	params map[string]any
+	// conds holds the parsed section formulas (suppress, new page), by text.
+	conds map[string]node
+	// ext, when set, receives the bands instead of the page layout (extract).
+	ext *extractor
+	// aggs caches the summaries formulas take over the report or a group.
+	aggs map[string]any
 
-	pages   []*pageOut
-	page    *pageOut
-	done    []*span // multi-section lines already ended on this page
-	y       int     // twips from the top of the page
-	bottom  int     // last twip usable by bands above the page footer
-	row     Row
-	prevRow Row
-	cache   map[string]any
-	errs    map[string]int
+	pages     []*pageOut
+	page      *pageOut
+	done      []*span // multi-section lines already ended on this page
+	y         int     // twips from the top of the page
+	bottom    int     // last twip usable by bands above the page footer
+	body      int     // where the page body starts, below the page header
+	breakAt   bool    // a section asked for a new page after it
+	titlePage bool    // the first page holds the report header alone
+	row       Row
+	prevRow   Row
+	rowIdx    int // index of row in rows
+	cache     map[string]any
+	errs      map[string]int
 }
 
 type runTotal struct {
@@ -86,9 +98,14 @@ func (rt *runTotal) result() any {
 		return rt.value / float64(rt.count)
 	case "Maximum", "Minimum":
 		return rt.extreme
+	case "Sum", "":
+		return rt.value
 	}
-	return rt.value
+	return nil // StandardDeviation, Variance, Percentage, ...: not computed
 }
+
+// aggregates are the summary operations runTotal computes.
+var aggregates = map[string]bool{"Sum": true, "Count": true, "DistinctCount": true, "Average": true, "Maximum": true, "Minimum": true, "": true}
 
 type pageOut struct {
 	items []item
@@ -109,18 +126,16 @@ type span struct {
 	untilReportEnd           bool // inferred end: on the last page, stop where the report ends
 }
 
+// NewEngine prepares a report for its rows. A formula the interpreter cannot
+// parse is left out with a warning (in errs); what refers to it prints blank.
 func NewEngine(r *Report, ov *Overlay, rows []Row, printed time.Time) (*Engine, error) {
-	e := &Engine{rpt: r, ov: ov, rows: rows, printed: printed, formulas: map[string]node{}, errs: map[string]int{}}
+	e := &Engine{rpt: r, ov: ov, rows: rows, printed: printed, formulas: map[string]node{},
+		params: map[string]any{}, conds: map[string]node{}, aggs: map[string]any{}, errs: map[string]int{}}
 	for name, src := range r.formulas() {
-		var n node
-		var err error
-		if isBasic(src) {
-			n, err = parseBasic(src, r.field(name).ResultType)
-		} else {
-			n, err = parseFormula(src)
-		}
+		n, err := parseAny(src, r.formulaField(name).ResultType)
 		if err != nil {
-			return nil, fmt.Errorf("formula @%s: %w", name, err)
+			e.errs[fmt.Sprintf("formula @%s not evaluated: %v", name, err)]++
+			continue
 		}
 		e.formulas[strings.ToLower(name)] = n
 	}
@@ -136,10 +151,109 @@ func NewEngine(r *Report, ov *Overlay, rows []Row, printed time.Time) (*Engine, 
 				}
 			}
 		}
+		if !aggregates[rt.fn] {
+			e.errs[fmt.Sprintf("running total %s: %s not computed", f.Name, rt.fn)]++
+		}
 		e.rtots = append(e.rtots, rt)
+	}
+	// Summary fields in group and report footers total their field over the
+	// group (or the report), as a running total reset with that group.
+	for _, s := range r.Sections {
+		if s.Type != "GroupFooter" && s.Type != "ReportFooter" {
+			continue
+		}
+		for _, o := range s.Objects {
+			if o.SummaryFunction == nil || o.FieldName == "" {
+				continue
+			}
+			reset := -1
+			if s.Type == "GroupFooter" {
+				reset = s.GroupLevel
+			}
+			if !aggregates[*o.SummaryFunction] {
+				e.errs[fmt.Sprintf("summary %s of %s not computed", *o.SummaryFunction, o.FieldName)]++
+			}
+			e.rtots = append(e.rtots, runTotal{name: summaryName(o), of: r.refOf(o.FieldName),
+				fn: *o.SummaryFunction, resetAt: reset, evalAt: -1})
+		}
 	}
 	return e, nil
 }
+
+// parseAny parses a formula in Basic or Crystal syntax.
+func parseAny(src, resultType string) (node, error) {
+	if isBasic(src) {
+		return parseBasic(src, resultType)
+	}
+	return parseFormula(src)
+}
+
+// SetParams sets the report's parameter values, Name=Value as on the command
+// line; a parameter not given takes its default.
+// A value takes the parameter's declared type: "false" is false for a
+// Boolean, "007" stays text for a String.
+func (e *Engine) SetParams(params []string) error {
+	for _, p := range params {
+		name, val, ok := strings.Cut(p, "=")
+		if !ok {
+			return fmt.Errorf("param %q: want Name=Value", p)
+		}
+		name = strings.TrimPrefix(name, "@")
+		e.params[strings.ToLower(name)] = e.paramValue(name, val)
+	}
+	return nil
+}
+
+// paramField is the report's parameter of that name; a stored procedure's
+// parameters are named with an "@" ({?@AsOf}).
+func (e *Engine) paramField(name string) *Field {
+	name = strings.TrimPrefix(name, "@")
+	if f := e.rpt.fieldKind("?", name); f != nil {
+		return f
+	}
+	return e.rpt.fieldKind("?", "@"+name)
+}
+
+// paramValue converts a parameter's text to its declared type.
+func (e *Engine) paramValue(name, val string) any {
+	f := e.paramField(name)
+	if f == nil || f.DataType == "" {
+		v := paramValue(val)
+		if n, ok := v.(int64); ok {
+			return float64(n)
+		}
+		return v
+	}
+	return typedValue(val, f.DataType)
+}
+
+// cond evaluates a section formula (suppress, new page) for the current
+// record; an empty or unparsable one is false.
+func (e *Engine) cond(src *string) bool {
+	if src == nil || strings.TrimSpace(*src) == "" {
+		return false
+	}
+	n, ok := e.conds[*src]
+	if !ok {
+		var err error
+		if n, err = parseAny(*src, "Boolean"); err != nil {
+			e.errs[fmt.Sprintf("section formula %q not evaluated: %v", *src, err)]++
+		}
+		e.conds[*src] = n
+	}
+	if n == nil {
+		return false
+	}
+	v, err := eval(n, e, map[string]any{})
+	if err != nil {
+		e.errs[fmt.Sprintf("section formula %q: %v", *src, err)]++
+		return false
+	}
+	return truthy(v)
+}
+
+// suppressed: the section does not print for the current record.
+func (e *Engine) suppressed(s Section) bool { return s.Suppress || e.cond(s.SuppressFormula) }
 
 // conditionGroup reads "Group:<level>".
 func conditionGroup(c string) (int, bool) {
@@ -211,11 +325,31 @@ func (e *Engine) Lookup(ref string) (any, error) {
 		}
 		return nil, fmt.Errorf("unknown running total %s", ref)
 	}
+	if name, ok := strings.CutPrefix(ref, "?"); ok {
+		name = strings.TrimPrefix(name, "@")
+		if v, ok := e.params[strings.ToLower(name)]; ok {
+			return v, nil
+		}
+		if f := e.paramField(name); f != nil && f.DefaultValue != nil {
+			return e.paramValue(name, *f.DefaultValue), nil
+		}
+		return nil, fmt.Errorf("no value for parameter %s", ref)
+	}
 	switch strings.ToLower(ref) {
 	case "pagenumber":
 		return float64(len(e.pages)), nil
-	case "printdate", "currentdate":
+	case "printdate", "currentdate", "datadate":
 		return dateOnly(e.printed), nil
+	case "printtime", "currenttime", "datatime":
+		return e.printed, nil
+	case "recordnumber":
+		return float64(e.rowIdx + 1), nil
+	case "onfirstrecord":
+		return e.rowIdx == 0, nil
+	case "onlastrecord":
+		return e.rowIdx == len(e.rows)-1, nil
+	case "crlf":
+		return "\n", nil
 	}
 	col := ref
 	if i := strings.LastIndexByte(ref, '.'); i >= 0 {
@@ -228,6 +362,76 @@ func (e *Engine) Lookup(ref string) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("no column %s", col)
 	}
+	return v, nil
+}
+
+// atRow looks ref up as it is on record i (nil past either end).
+func (e *Engine) atRow(i int, ref string) (any, error) {
+	if i < 0 || i >= len(e.rows) {
+		return nil, nil
+	}
+	row, prev, idx, cache := e.row, e.prevRow, e.rowIdx, e.cache
+	defer func() { e.row, e.prevRow, e.rowIdx, e.cache = row, prev, idx, cache }()
+	e.row, e.rowIdx, e.cache = e.rows[i], i, map[string]any{}
+	e.prevRow = nil
+	if i > 0 {
+		e.prevRow = e.rows[i-1]
+	}
+	return e.Lookup(ref)
+}
+
+func (e *Engine) atOffset(ref string, offset int) (any, error) { return e.atRow(e.rowIdx+offset, ref) }
+
+// aggregate is Sum, Count, Average, Maximum, Minimum or DistinctCount of
+// ref over the report, or over the current record's group whose field is
+// group. Count counts the values that are not null.
+func (e *Engine) aggregate(fn, ref, group string) (any, error) {
+	lo, hi := 0, len(e.rows)
+	if group != "" {
+		level := -1
+		for l, g := range e.rpt.Groups {
+			if strings.EqualFold(display(e.rpt, e.rpt.groupRef(g)), display(e.rpt, strings.TrimSpace(group))) {
+				level = l
+			}
+		}
+		if level < 0 {
+			return nil, fmt.Errorf("%s(): {%s} is not a group of the report", fn, group)
+		}
+		same := func(j int) bool {
+			for l := 0; l <= level; l++ {
+				g := e.rpt.Groups[l]
+				if compare(groupValue(g, e.rows[j]), groupValue(g, e.rows[e.rowIdx])) != 0 {
+					return false
+				}
+			}
+			return true
+		}
+		lo, hi = e.rowIdx, e.rowIdx+1
+		for lo > 0 && same(lo-1) {
+			lo--
+		}
+		for hi < len(e.rows) && same(hi) {
+			hi++
+		}
+	}
+	key := fmt.Sprintf("agg:%s:%s:%d:%d", fn, strings.ToLower(ref), lo, hi)
+	if v, ok := e.aggs[key]; ok {
+		return v, nil
+	}
+	rt := runTotal{fn: map[string]string{"sum": "Sum", "count": "Count", "average": "Average",
+		"maximum": "Maximum", "minimum": "Minimum", "distinctcount": "DistinctCount"}[fn]}
+	for i := lo; i < hi; i++ {
+		v, err := e.atRow(i, ref)
+		if err != nil {
+			return nil, err
+		}
+		rt.add(v)
+	}
+	v := rt.result()
+	if v == nil && (rt.fn == "Sum" || rt.fn == "Average") {
+		v = 0.0
+	}
+	e.aggs[key] = v
 	return v, nil
 }
 
@@ -262,9 +466,14 @@ func (e *Engine) value(ref string) any {
 func (e *Engine) Run() {
 	groups := e.rpt.Groups
 	e.sortRows()
+	e.aggs = map[string]any{} // a sort formula may have summarized the unsorted rows
 
 	e.setRow(firstOrNil(e.rows))
-	e.newPage(true)
+	if e.ext != nil {
+		e.ext.start(e)
+	} else {
+		e.newPage(true)
+	}
 
 	for i, r := range e.rows {
 		changed := len(groups) // first level whose value changes
@@ -287,8 +496,12 @@ func (e *Engine) Run() {
 			e.reset(l)
 		}
 		e.setRow(r)
+		e.rowIdx = i
 		e.accumulate(changed)
 		for l := changed; l < len(groups); l++ {
+			if e.ext != nil {
+				e.ext.open(e, l)
+			}
 			e.bands("GroupHeader", l)
 		}
 		e.bands("Details", -1)
@@ -299,6 +512,9 @@ func (e *Engine) Run() {
 		}
 	}
 	e.bands("ReportFooter", -1)
+	if e.ext != nil {
+		return
+	}
 	e.closePage(true)
 }
 
@@ -438,7 +654,7 @@ func (e *Engine) accumulate(changed int) {
 func (e *Engine) pageFooterHeight() int {
 	h := 0
 	for _, s := range e.sections("PageFooter", -1) {
-		if !s.Suppress {
+		if !e.suppressed(s) {
 			h += s.HeightTwips
 		}
 	}
@@ -454,12 +670,18 @@ func (e *Engine) newPage(first bool) {
 	if first {
 		// The report header prints above the first page header.
 		for _, s := range e.sections("ReportHeader", -1) {
-			e.place(s)
+			if !e.suppressed(s) {
+				e.place(s)
+				e.breakAt = e.breakAt || s.NewPageAfter || e.cond(s.NewPageAfterFormula)
+			}
 		}
+		// A report header that asks for a new page after it is a title page.
+		e.titlePage = e.breakAt
 	}
 	for _, s := range e.sections("PageHeader", -1) {
 		e.place(s)
 	}
+	e.body = e.y
 }
 
 func (e *Engine) finishPage() { e.closePage(false) }
@@ -479,7 +701,7 @@ func (e *Engine) closePage(last bool) {
 	}
 	y := e.bottom
 	for _, s := range e.sections("PageFooter", -1) {
-		if s.Suppress {
+		if e.suppressed(s) {
 			continue
 		}
 		e.endSpans(s, y)
@@ -525,19 +747,29 @@ func (e *Engine) endSpans(s Section, y int) {
 
 func (e *Engine) bands(typ string, level int) {
 	for _, s := range e.sections(typ, level) {
-		if s.Suppress {
+		if e.suppressed(s) {
 			continue
 		}
-		if e.y+s.HeightTwips > e.bottom && typ != "PageHeader" {
+		if e.ext != nil {
+			e.ext.band(e, s)
+			continue
+		}
+		// A new page before the section, or one the last section asked for
+		// after it; neither leaves a page with nothing but its header.
+		brk := e.breakAt || s.NewPageBefore || e.cond(s.NewPageBeforeFormula)
+		e.breakAt = false
+		if (brk && (e.y > e.body || e.titlePage)) || e.y+s.HeightTwips > e.bottom {
+			e.titlePage = false
 			e.finishPage()
 			e.newPage(false)
 		}
 		e.place(s)
+		e.breakAt = s.NewPageAfter || e.cond(s.NewPageAfterFormula)
 	}
 }
 
 func (e *Engine) place(s Section) {
-	if s.Suppress {
+	if e.suppressed(s) {
 		return
 	}
 	e.endSpans(s, e.y)
@@ -653,7 +885,7 @@ func (e *Engine) fieldText(ref string, o Object) (string, string) {
 		return pageSlot, textAlign(align)
 	case "PrintDate":
 		return formatDate(e.printed, defaultDate), textAlign(align)
-	case "PrintTime":
+	case "PrintTime", "DataTime":
 		return formatDate(e.printed, defaultTime), textAlign(align)
 	}
 	format := e.match(e.ov.Formats, ref)

@@ -23,6 +23,34 @@ type Report struct {
 	Groups      []Group
 	SortFields  []SortField
 	Sections    []Section
+
+	// Read by describe, audit and index; the engine does not use them.
+	Author                 string
+	ReportComments         string
+	DataSources            []DataSource
+	TableLinks             []TableLink
+	RecordSelectionFormula *string
+	GroupSelectionFormula  *string
+}
+
+type DataSource struct {
+	Name         string
+	Kind         string
+	ServerName   *string
+	DatabaseName *string
+	OdbcDsn      *string
+	SqlQuery     *string
+	Tables       []struct {
+		Name    string
+		Alias   string
+		Columns []struct{ Name, DataType string }
+	}
+}
+
+type TableLink struct {
+	SourceTable, SourceColumn string
+	TargetTable, TargetColumn string
+	JoinType, Operator        string
 }
 
 type SortField struct {
@@ -54,13 +82,27 @@ type Field struct {
 	EvaluateCondition *string
 	Syntax            string
 	Type              string `json:"$type"`
+	// Parameters.
+	PromptText          string
+	AllowMultipleValues bool
+	DefaultValue        *string
+	PickListValues      []struct{ Item1, Item2 string }
 }
 
 type Group struct {
-	Level     int
-	FieldName string
-	SortOrder string
-	Condition string
+	Level             int
+	FieldName         string
+	TableName         string
+	SortOrder         string
+	Condition         string
+	RepeatGroupHeader bool
+	TopN              *struct {
+		Count         int
+		Bottom        bool
+		Function      string
+		FieldName     string
+		DiscardOthers bool
+	}
 }
 
 type Section struct {
@@ -69,6 +111,13 @@ type Section struct {
 	HeightTwips int
 	Suppress    bool
 	Objects     []Object
+	// Formulas that decide, per instance, whether the section prints and
+	// whether a new page comes before or after it.
+	SuppressFormula      *string
+	NewPageBefore        bool
+	NewPageAfter         bool
+	NewPageBeforeFormula *string
+	NewPageAfterFormula  *string
 }
 
 // SectionRef is where a line or box ends: a section's kind and group level.
@@ -87,6 +136,23 @@ type Object struct {
 	// Lines and boxes: the section they run down into, and how far into it.
 	EndSection     *SectionRef
 	EndBottomTwips int
+
+	// Read by describe and audit; the engine does not draw these.
+	SummaryFunction   *string    // a summary field: FieldName summarized per group
+	SubreportName     string     // subreports
+	Report            *Report    // the subreport's own model
+	Title             string     // charts
+	Kind              string     // charts
+	CategoryFields    []string   // charts
+	SeriesField       string     // charts
+	SeriesFunction    string     // charts
+	RowGroupFields    []string   // cross-tabs
+	ColumnGroupFields []string   // cross-tabs
+	Cells             []struct { // cross-tabs
+		FieldName, Function string
+	}
+	Source   string  // pictures: Embedded or a field
+	MimeType *string // pictures
 }
 
 type Format struct {
@@ -109,7 +175,14 @@ type Format struct {
 	// SuppressIfZero: a number prints blank at zero.
 	SuppressIfZero bool
 	// NegativeFormat: 0 no sign, 1 leading minus, 3 in brackets.
-	NegativeFormat int
+	NegativeFormat  int
+	SuppressIfBlank bool
+	Conditions      []struct {
+		Operator  string
+		Threshold float64
+		FontColor *string
+		BackColor *string
+	}
 }
 
 // Overlay carries what the .rpt model does not hold, one JSON file per report.
@@ -192,6 +265,8 @@ func (r *Report) field(name string) *Field {
 	return nil
 }
 
+func (r *Report) formulaField(name string) *Field { return r.fieldKind("@", name) }
+
 func (r *Report) formulas() map[string]string {
 	m := map[string]string{}
 	for _, f := range r.Fields {
@@ -221,6 +296,9 @@ func (r *Report) binding(o Object, ov *Overlay) string {
 	if b, ok := ov.Bind[o.Name]; ok {
 		return b
 	}
+	if o.SummaryFunction != nil {
+		return "#" + summaryName(o)
+	}
 	switch o.FieldName {
 	case "Page N of M":
 		return "PageNofM"
@@ -230,6 +308,17 @@ func (r *Report) binding(o Object, ov *Overlay) string {
 		return "PrintTime"
 	case "Page Number":
 		return "PageNumber"
+	case "Record Number":
+		return "RecordNumber"
+	case "Data Date":
+		return "DataDate"
+	case "Data Time":
+		return "DataTime"
+	}
+	// "Group #2 Name" (or "Group #2") prints the value the group breaks on.
+	var n int
+	if _, err := fmt.Sscanf(o.FieldName, "Group #%d", &n); err == nil && n >= 1 && n <= len(r.Groups) {
+		return r.refOf(r.Groups[n-1].FieldName)
 	}
 	ref := o.FieldName
 	if r.resolves(ref) {
@@ -246,16 +335,54 @@ func (r *Report) binding(o Object, ov *Overlay) string {
 	return ref
 }
 
+// summaryName is the running total a summary field object computes.
+func summaryName(o Object) string { return "summary:" + o.Name }
+
+// refOf turns a field name as the model writes it ("Amt", "@Due", "#Total")
+// into a reference, trying a formula and a running total for a bare name.
+func (r *Report) refOf(name string) string {
+	if r.resolves(name) {
+		return name
+	}
+	for _, cand := range []string{"@" + name, "#" + name} {
+		if r.resolves(cand) {
+			return cand
+		}
+	}
+	return name
+}
+
 func (r *Report) resolves(ref string) bool {
 	switch {
 	case strings.HasPrefix(ref, "@"):
-		f := r.field(ref[1:])
+		f := r.fieldKind("@", ref[1:])
 		return f != nil && f.FormulaText != ""
 	case strings.HasPrefix(ref, "#"):
-		f := r.field(ref[1:])
+		f := r.fieldKind("#", ref[1:])
 		return f != nil && f.SummarizedFieldName != ""
 	default:
-		f := r.field(ref)
+		f := r.fieldKind("", ref)
 		return f != nil && f.FormulaText == "" && f.SummarizedFieldName == ""
 	}
+}
+
+// fieldKind finds a field by name (any case) and kind, as a reference's
+// prefix gives it: "@" formula, "#" running total, "?" parameter, "" a
+// database field. A formula and a running total may share a name.
+func (r *Report) fieldKind(prefix, name string) *Field {
+	kind := map[string]string{"@": "FormulaField", "#": "RunningTotalField", "?": "ParameterField", "": "DatabaseField"}[prefix]
+	var loose *Field
+	for i := range r.Fields {
+		f := &r.Fields[i]
+		if !strings.EqualFold(f.Name, name) {
+			continue
+		}
+		if f.Type == kind {
+			return f
+		}
+		if f.Type == "" && loose == nil { // a model without $type
+			loose = f
+		}
+	}
+	return loose
 }

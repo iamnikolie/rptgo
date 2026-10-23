@@ -63,13 +63,12 @@ rptgo audit reports/ -fail-on error    # exit 1 if any report has an error (for 
 Each finding is `severity [code] where: message`:
 
 - **error**: rptgo's output is wrong or missing there. Codes: `formula-syntax`,
-  `function-unsupported`, `subreport`, `chart`, `crosstab`, `special-field`,
-  `summary-placement`, `group-selection`, `group-topn`.
-- **warning**: output may differ from Crystal's. Codes: `record-selection`
-  (rptgo prints every row it is given), `reference-unknown`, `name-unknown`,
-  `picture`, `group-specified-order`.
-- **info**: no effect on output. Codes: `unused` (formula, total or parameter
-  nothing uses), `own-data`, `conditional-format`.
+  `function-unsupported`, `special-field`, `summary-function`.
+- **warning**: output may differ from Crystal's. Codes: `reference-unknown`,
+  `name-unknown`, `picture` (WMF/EMF, or read from a field), `group-specified-order`.
+- **info**: no effect on output by itself. Codes: `subreport-rows` (the
+  subreport prints only with `-sub` or `-sub-data`), `unused` (formula, total
+  or parameter nothing uses), `own-data`.
 
 A report with no errors or warnings renders and extracts as Crystal would.
 
@@ -115,10 +114,27 @@ totals, then warnings. In JSON, `columns` names the detail values and every
 A report laid out as a form (`"form": true`) lists each record's values
 instead of a table.
 
-The engine applies groups, sorts, formulas (Crystal and Basic syntax),
-running totals, summary fields in footers, `Sum`/`Count`/... over a group,
-`Previous`/`Next`, and section suppress formulas, as Crystal does. Check
-`rptgo audit` for what it does not apply.
+The engine applies record selection, groups, sorts, Top N (with an
+"Others" group), group selection, formulas (Crystal and Basic syntax),
+running totals, summary fields (in headers too), `Sum`/`Count`/... over a
+group, `Previous`/`Next`, and section suppress formulas, as Crystal does.
+Check `rptgo audit` for what it does not apply.
+
+### Subreports, charts, cross-tabs
+
+An application feeds each subreport a table of its own. Give rptgo those
+rows by subreport name or table name:
+
+```bash
+rptgo extract Daily.rpt -proc spDaily -param Job=12 -param Date=2024-03-31 \
+  -sub Journal=spDailyJournal -sub-data Labor=labor.json
+```
+
+`-sub Name=procedure` runs it with the `-param` values it declares.
+`rptgo describe` lists each subreport's table and `rptgo audit` names the
+flag to give. In the output, charts (`categories` x `seriesNames` values),
+cross-tabs (rows x columns cells with totals) and subreports (a nested
+extraction) sit under `objects` of the group or report they print in.
 
 ## render
 

@@ -45,8 +45,16 @@ body { margin: 0; font-family: Arial, "Liberation Sans", Arimo, Helvetica, sans-
 func htmlItem(it item, page, total int) string {
 	switch it.kind {
 	case itemFill:
-		return fmt.Sprintf(`<div class="ln" style="left:%s;top:%s;width:%s;height:%s"></div>`,
-			pt(it.x), pt(it.y), pt(it.w), pt(it.h))
+		bg := ""
+		if it.color != "" {
+			bg = ";background:" + it.color
+		}
+		return fmt.Sprintf(`<div class="ln" style="left:%s;top:%s;width:%s;height:%s%s"></div>`,
+			pt(it.x), pt(it.y), pt(it.w), pt(it.h), bg)
+	case itemImage:
+		return htmlImage(it)
+	case itemChart:
+		return htmlChart(it)
 	case itemBox:
 		return fmt.Sprintf(`<div class="bx" style="left:%s;top:%s;width:%s;height:%s"></div>`,
 			pt(it.x), pt(it.y), pt(it.w), pt(it.h))
@@ -76,6 +84,9 @@ func htmlItem(it item, page, total int) string {
 	}
 	if f.underline {
 		style += ";text-decoration:underline"
+	}
+	if it.color != "" {
+		style += ";color:" + it.color
 	}
 	return fmt.Sprintf(`<div class="t" style="%s">%s</div>`, style, html.EscapeString(pageText(it.text, page, total)))
 }

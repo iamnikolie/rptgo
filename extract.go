@@ -32,12 +32,25 @@ type Extraction struct {
 	Texts    [][]string      `json:"-"`
 	Omitted  int             `json:"omittedRows,omitempty"`
 	Footer   *orderedMap     `json:"footer,omitempty"`
+	Objects  []extractObject `json:"objects,omitempty"`
 	Warnings []string        `json:"warnings,omitempty"`
 }
 
 type extractColumn struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+}
+
+// extractObject is a chart, cross-tab or subreport, with what it shows for
+// the group (or record, or report) it printed with.
+type extractObject struct {
+	Section   string        `json:"section"`
+	Row       int           `json:"row,omitempty"` // 1-based detail row it printed with
+	Kind      string        `json:"kind"`          // chart, crosstab, subreport
+	Name      string        `json:"name"`
+	Chart     *ChartData    `json:"chart,omitempty"`
+	CrossTab  *CrossTabData `json:"crossTab,omitempty"`
+	Subreport *Extraction   `json:"subreport,omitempty"`
 }
 
 type extractGroup struct {
@@ -50,6 +63,7 @@ type extractGroup struct {
 	Texts   [][]string      `json:"-"`
 	Omitted int             `json:"omittedRows,omitempty"`
 	Footer  *orderedMap     `json:"footer,omitempty"`
+	Objects []extractObject `json:"objects,omitempty"`
 }
 
 // orderedMap is a JSON object that keeps its keys in insertion order, with
@@ -156,7 +170,7 @@ func (x *extractor) start(e *Engine) {
 // open starts a group at level l for the current record.
 func (x *extractor) open(e *Engine, l int) {
 	g := e.rpt.Groups[l]
-	grp := &extractGroup{Level: l + 1, By: display(e.rpt, e.rpt.refOf(g.FieldName)), Value: jsonValue(groupValue(g, e.row))}
+	grp := &extractGroup{Level: l + 1, By: display(e.rpt, e.rpt.refOf(g.FieldName)), Value: jsonValue(e.groupKey(l, e.row))}
 	x.stack = x.stack[:min(l, len(x.stack))]
 	if l == x.lineLevel {
 		// One line of the parent's table, not a group of its own.
@@ -178,6 +192,7 @@ func (x *extractor) band(e *Engine, s Section) {
 	if len(x.stack) > 0 {
 		cur = x.stack[len(x.stack)-1]
 	}
+	x.objects(e, s, cur)
 	if s.Type == "Details" {
 		if x.lineLevel < 0 {
 			x.detail(e, s, cur, e.rowIdx)
@@ -227,6 +242,92 @@ func (x *extractor) band(e *Engine, s Section) {
 	}
 }
 
+// objects computes the band's charts, cross-tabs and subreports and keeps
+// them with the group they printed in (a group header or footer's own
+// group, the current group for details, the report otherwise).
+func (x *extractor) objects(e *Engine, s Section, cur *extractGroup) {
+	var found []extractObject
+	name := ""
+	for i := range e.rpt.Sections {
+		if sectionEqual(e.rpt.Sections[i], s) {
+			name = e.rpt.sectionName(i)
+		}
+	}
+	for _, o := range s.Objects {
+		if o.Format.Suppress {
+			continue
+		}
+		obj := extractObject{Section: name, Name: o.Name}
+		switch {
+		case strings.Contains(o.Type, "Chart"):
+			obj.Kind, obj.Chart = "chart", e.chartData(o, s)
+			if obj.Chart == nil {
+				continue
+			}
+			if o.Title != "" {
+				obj.Name = o.Title
+			}
+		case strings.Contains(o.Type, "CrossTab"):
+			obj.Kind, obj.CrossTab = "crosstab", e.crossTabData(o, s)
+			if obj.CrossTab == nil {
+				continue
+			}
+		case strings.Contains(o.Type, "Subreport") && o.Report != nil:
+			sub := e.subreport(o)
+			if sub == nil {
+				continue
+			}
+			obj.Kind, obj.Name = "subreport", o.SubreportName
+			obj.Subreport = sub.Extract(o.SubreportName, nil, x.maxRows)
+			obj.Subreport.Warnings = nil // the main report's warnings hold them
+		default:
+			continue
+		}
+		found = append(found, obj)
+	}
+	if len(found) == 0 {
+		return
+	}
+	// objects runs before the band's own line is added: the line it prints
+	// with is the next one unless this record (or group) already has one.
+	target, row := &x.out.Objects, 0
+	group := s.Type == "GroupHeader" || s.Type == "GroupFooter"
+	switch {
+	case group && x.lineLevel >= 0 && s.GroupLevel >= x.lineLevel:
+		// A line of a summary report: its parent's table holds the line.
+		n := len(x.out.Lines)
+		if x.lineLevel > 0 && x.lineLevel-1 < len(x.stack) {
+			p := x.stack[x.lineLevel-1]
+			target, n = &p.Objects, len(p.Lines)
+		}
+		row = n + 1
+		if x.lastRow == -x.lineSeq {
+			row = n
+		}
+	case group && s.GroupLevel < len(x.stack):
+		target = &x.stack[s.GroupLevel].Objects
+	case s.Type == "Details":
+		n := len(x.out.Lines)
+		if cur != nil {
+			target, n = &cur.Objects, len(cur.Lines)
+		}
+		row = n + 1
+		if x.lastRow == e.rowIdx {
+			row = n
+		}
+	}
+	for i := range found {
+		found[i].Row = row
+	}
+	*target = append(*target, found...)
+}
+
+// sectionEqual: a and b are the same section of the model.
+func sectionEqual(a, b Section) bool {
+	return a.Type == b.Type && a.GroupLevel == b.GroupLevel && a.HeightTwips == b.HeightTwips &&
+		len(a.Objects) == len(b.Objects) && (len(a.Objects) == 0 || a.Objects[0].Name == b.Objects[0].Name)
+}
+
 // detail adds a line section's values to the current line; a record's
 // Details a and Details b (or a group's footers a and b) fill one row.
 // seq identifies the line: the record, or the group whose footer it is.
@@ -263,6 +364,8 @@ func (x *extractor) detail(e *Engine, s Section, cur *extractGroup, seq int) {
 // values is a header or footer band's printed values by label; page numbers
 // and print timestamps are left out.
 func (x *extractor) values(e *Engine, s Section) *orderedMap {
+	e.band = &s
+	defer func() { e.band = nil }()
 	m := &orderedMap{}
 	for _, row := range visualRows(s.Objects) {
 		for _, o := range row {
@@ -316,13 +419,17 @@ func jsonValue(v any) any {
 
 // Markdown writes the extraction as headings per group and a table of the
 // detail rows, values as the report prints them.
-func (x *Extraction) Markdown() string {
+func (x *Extraction) Markdown() string { return x.markdown(1) }
+
+// markdown writes the extraction with its title at heading level (deeper
+// for a subreport).
+func (x *Extraction) markdown(level int) string {
 	var b strings.Builder
 	title := x.Title
 	if title == "" {
 		title = x.Report
 	}
-	fmt.Fprintf(&b, "# %s: data\n\n", mdText(title))
+	fmt.Fprintf(&b, "%s %s: data\n\n", strings.Repeat("#", min(level, 6)), mdText(title))
 	meta := []string{"Report `" + x.Report + "`", "printed " + x.Printed, fmt.Sprintf("%d records", x.Records)}
 	if !x.Parameters.empty() {
 		meta = append(meta, "parameters "+inline(x.Parameters))
@@ -333,11 +440,12 @@ func (x *Extraction) Markdown() string {
 	}
 	x.table(&b, x.Lines, x.Texts, x.Omitted)
 	for _, g := range x.Groups {
-		x.group(&b, g, 2)
+		x.group(&b, g, level+1)
 	}
 	if !x.Footer.empty() {
 		b.WriteString("**Report totals:** " + inline(x.Footer) + "\n\n")
 	}
+	writeObjects(&b, x.Objects, level+1)
 	if len(x.Warnings) > 0 {
 		b.WriteString("## Warnings\n\n")
 		for _, w := range x.Warnings {
@@ -364,6 +472,47 @@ func (x *Extraction) group(b *strings.Builder, g *extractGroup, depth int) {
 	}
 	if !g.Footer.empty() {
 		fmt.Fprintf(b, "**Totals (%s):** %s\n\n", mdText(fmt.Sprint(nilText(g.Value))), inline(g.Footer))
+	}
+	writeObjects(b, g.Objects, depth+1)
+}
+
+// writeObjects writes charts and cross-tabs as tables, subreports nested.
+func writeObjects(b *strings.Builder, objs []extractObject, level int) {
+	for _, o := range objs {
+		at := o.Section
+		if o.Row > 0 {
+			at += fmt.Sprintf(", row %d", o.Row)
+		}
+		switch o.Kind {
+		case "chart":
+			c := o.Chart
+			fmt.Fprintf(b, "**Chart %q** (%s; %s by %s", o.Name, at, c.Value, c.Category)
+			if c.Series != "" {
+				b.WriteString(" and " + c.Series)
+			}
+			b.WriteString("):\n\n")
+			head := []string{mdCell(c.Category)}
+			if len(c.SeriesKeys) > 0 {
+				for _, s := range c.SeriesKeys {
+					head = append(head, mdCell(s))
+				}
+			} else {
+				head = append(head, mdCell(c.Value))
+			}
+			b.WriteString("| " + strings.Join(head, " | ") + " |\n|" + strings.Repeat(" --- |", len(head)) + "\n")
+			for i, cat := range c.Categories {
+				cells := []string{mdCell(cat)}
+				for _, v := range c.Values[i] {
+					cells = append(cells, formatNumber(v, 2, true))
+				}
+				b.WriteString("| " + strings.Join(cells, " | ") + " |\n")
+			}
+			b.WriteString("\n")
+		case "crosstab":
+			fmt.Fprintf(b, "**Cross-tab** (%s; %s):\n\n%s\n", at, strings.Join(o.CrossTab.Summaries, ", "), o.CrossTab.markdown())
+		case "subreport":
+			fmt.Fprintf(b, "**Subreport %q** (%s):\n\n%s", o.Name, at, o.Subreport.markdown(min(level, 6)))
+		}
 	}
 }
 

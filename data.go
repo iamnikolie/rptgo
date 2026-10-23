@@ -26,7 +26,44 @@ func runProc(dsn, proc string, params []string) ([]Row, error) {
 		return nil, err
 	}
 	defer db.Close()
+	return query(db, proc, params)
+}
 
+// runSubProc runs a subreport's procedure with the parameters it declares
+// out of params (all of them when it declares none SQL Server can list).
+func runSubProc(dsn, proc string, params []string) ([]Row, error) {
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	declared := map[string]bool{}
+	rs, err := db.Query("SELECT name FROM sys.parameters WHERE object_id = OBJECT_ID(@p1)", proc)
+	if err == nil {
+		for rs.Next() {
+			var n string
+			if rs.Scan(&n) == nil {
+				declared[strings.ToLower(strings.TrimPrefix(n, "@"))] = true
+			}
+		}
+		rs.Close()
+	}
+	if len(declared) > 0 {
+		var kept []string
+		for _, p := range params {
+			name, _, _ := strings.Cut(p, "=")
+			if declared[strings.ToLower(strings.TrimPrefix(name, "@"))] {
+				kept = append(kept, p)
+			}
+		}
+		params = kept
+	}
+	return query(db, proc, params)
+}
+
+// query runs a procedure (or a statement) with named parameters and returns
+// its first result set.
+func query(db *sql.DB, proc string, params []string) ([]Row, error) {
 	var args []any
 	for _, p := range params {
 		name, val, ok := strings.Cut(p, "=")

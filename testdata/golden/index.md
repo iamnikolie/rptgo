@@ -4,7 +4,7 @@
 
 | Report | Title | Data | Groups | Columns | Formulas | Totals | Audit |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| sales.json | Sales by Region | Dataset SalesData; params MinAmount | {Sales.Region} | Invoice, Date, Rep, Amount, Margin, Margin %, Share %, Flag | 6 | 4 | 2/0/3 |
+| sales.json | Sales by Region | Dataset SalesData; params MinAmount | {Sales.Region} | Invoice, Date, Rep, Amount, Margin, Margin %, Share %, Flag | 6 | 4 | 1/0/3 |
 
 ## Tables
 

@@ -529,7 +529,23 @@ func (r *Report) usage(ov *Overlay) map[string][]string {
 			}
 		}
 		for _, o := range s.Objects {
-			if !isField(o) || o.Format.Suppress {
+			if o.Format.Suppress {
+				continue
+			}
+			var fields []string // what a chart or cross-tab reads
+			fields = append(fields, o.CategoryFields...)
+			fields = append(fields, o.RowGroupFields...)
+			fields = append(fields, o.ColumnGroupFields...)
+			if o.SeriesField != "" {
+				fields = append(fields, o.SeriesField)
+			}
+			for _, c := range o.Cells {
+				fields = append(fields, c.FieldName)
+			}
+			for _, f := range fields {
+				add(display(r, r.refOf(f)), name)
+			}
+			if !isField(o) {
 				continue
 			}
 			if o.SummaryFunction != nil {

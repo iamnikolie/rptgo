@@ -102,6 +102,7 @@ type Group struct {
 		Function      string
 		FieldName     string
 		DiscardOthers bool
+		OthersName    string
 	}
 }
 
@@ -137,22 +138,39 @@ type Object struct {
 	EndSection     *SectionRef
 	EndBottomTwips int
 
-	// Read by describe and audit; the engine does not draw these.
-	SummaryFunction   *string    // a summary field: FieldName summarized per group
-	SubreportName     string     // subreports
-	Report            *Report    // the subreport's own model
-	Title             string     // charts
-	Kind              string     // charts
-	CategoryFields    []string   // charts
-	SeriesField       string     // charts
-	SeriesFunction    string     // charts
-	RowGroupFields    []string   // cross-tabs
-	ColumnGroupFields []string   // cross-tabs
-	Cells             []struct { // cross-tabs
+	SummaryFunction *string // a summary field: FieldName summarized over its section's group
+
+	// Subreports.
+	SubreportName string
+	Report        *Report // the subreport's own model
+
+	// Charts.
+	Title              string
+	Kind               string // Column, Line, Area, Pie, Doughnut
+	Stacking           string // None, Stacked, PercentStacked
+	CategoryFields     []string
+	CategoryConditions []string // per category field: EachValue or a date period
+	SeriesField        string
+	SeriesFunction     string
+	ShowLegend         bool
+	Palette            []string // series colours
+	CategoryAxisTitle  string
+	ValueAxisTitle     string
+
+	// Cross-tabs.
+	RowGroupFields    []string
+	ColumnGroupFields []string
+	Cells             []struct {
 		FieldName, Function string
 	}
-	Source   string  // pictures: Embedded or a field
-	MimeType *string // pictures
+	ShowGrid                  bool
+	SuppressRowGrandTotals    bool
+	SuppressColumnGrandTotals bool
+
+	// Pictures.
+	Source    string // Embedded or a field
+	MimeType  *string
+	ImageData []byte // the embedded file
 }
 
 type Format struct {
@@ -177,7 +195,10 @@ type Format struct {
 	// NegativeFormat: 0 no sign, 1 leading minus, 3 in brackets.
 	NegativeFormat  int
 	SuppressIfBlank bool
-	Conditions      []struct {
+	// Colours "#RRGGBB", nil for the default (black text, no fill).
+	ForeColor  *string
+	BackColor  *string
+	Conditions []struct {
 		Operator  string
 		Threshold float64
 		FontColor *string

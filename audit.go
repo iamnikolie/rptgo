@@ -7,7 +7,9 @@ package main
 // leaves to the data's source, unused formulas, totals and parameters.
 
 import (
+	"bytes"
 	"fmt"
+	"image"
 	"sort"
 	"strings"
 )
@@ -31,7 +33,7 @@ func (f Finding) line() string {
 var knownNames = map[string]bool{
 	"true": true, "false": true, "pagenumber": true, "printdate": true, "currentdate": true,
 	"printtime": true, "currenttime": true, "datadate": true, "datatime": true, "recordnumber": true,
-	"onfirstrecord": true, "onlastrecord": true, "formula": true, "crlf": true,
+	"onfirstrecord": true, "onlastrecord": true, "formula": true, "crlf": true, "groupnumber": true,
 }
 
 // Audit checks r; findings come errors first, then by place.
@@ -59,7 +61,8 @@ func Audit(r *Report, ov *Overlay) []Finding {
 			}
 		}
 		for _, id := range w.idents {
-			if !knownNames[strings.ToLower(id)] && !w.assigned[strings.ToLower(id)] {
+			_, isConst := crConstants[strings.ToLower(id)]
+			if !knownNames[strings.ToLower(id)] && !isConst && !w.assigned[strings.ToLower(id)] {
 				add("warning", "name-unknown", where, "uses %s, which rptgo evaluates as a column of the row", id)
 			}
 		}
@@ -108,21 +111,38 @@ func Audit(r *Report, ov *Overlay) []Finding {
 			where := name + " " + o.Name
 			switch {
 			case strings.Contains(o.Type, "Subreport"):
-				add("error", "subreport", where, "subreport %q is not rendered or extracted", o.SubreportName)
-			case strings.Contains(o.Type, "Chart"):
-				add("error", "chart", where, "chart %q is not rendered", o.Title)
-			case strings.Contains(o.Type, "CrossTab"):
-				add("error", "crosstab", where, "cross-tab is not rendered")
+				var tables []string
+				if o.Report != nil {
+					for _, ds := range o.Report.DataSources {
+						for _, t := range ds.Tables {
+							tables = append(tables, t.Name)
+						}
+					}
+				}
+				add("info", "subreport-rows", where, "subreport %q reads its own rows (%s): give them with -sub %s=PROCEDURE or -sub-data %s=FILE, else it does not print",
+					o.SubreportName, orNone(strings.Join(tables, ", ")), o.SubreportName, o.SubreportName)
+				if o.Report != nil {
+					for _, f := range Audit(o.Report, &Overlay{}) {
+						if f.Severity != "info" {
+							f.Where = fmt.Sprintf("subreport %q %s", o.SubreportName, f.Where)
+							out = append(out, f)
+						}
+					}
+				}
 			case strings.Contains(o.Type, "Image"):
-				add("warning", "picture", where, "picture is not drawn")
+				switch {
+				case len(o.ImageData) == 0:
+					add("warning", "picture", where, "picture from %s is not drawn; only embedded pictures are", orNone(o.FieldName))
+				default:
+					if _, _, err := image.DecodeConfig(bytes.NewReader(o.ImageData)); err != nil {
+						add("warning", "picture", where, "picture is not drawn: %v (WMF and EMF are not read)", err)
+					}
+				}
 			case isField(o):
 				ref := r.binding(o, ov)
 				if o.SummaryFunction != nil {
-					if !aggregates[*o.SummaryFunction] {
+					if fn := *o.SummaryFunction; !aggregates[fn] && fn != "Percentage" {
 						add("error", "summary-function", where, "%s is not computed; it prints blank", display(r, ref))
-					}
-					if s.Type != "GroupFooter" && s.Type != "ReportFooter" {
-						add("error", "summary-placement", where, "%s in a %s needs the group's records ahead; rptgo computes summaries only in footers", display(r, ref), strings.ToLower(name))
 					}
 					continue
 				}
@@ -138,26 +158,16 @@ func Audit(r *Report, ov *Overlay) []Finding {
 					}
 				}
 			}
-			if len(o.Format.Conditions) > 0 {
-				add("info", "conditional-format", where, "conditional colours are not applied")
-			}
 		}
 	}
 
 	// Data, groups and selection.
-	if r.RecordSelectionFormula != nil && strings.TrimSpace(*r.RecordSelectionFormula) != "" {
-		add("warning", "record-selection", "report", "the record selection formula is not applied; rptgo prints every row it is given")
-	}
-	if r.GroupSelectionFormula != nil && strings.TrimSpace(*r.GroupSelectionFormula) != "" {
-		add("error", "group-selection", "report", "the group selection formula is not applied; groups it would drop still print")
+	for _, f := range []struct{ name, src string }{{"record selection", deref(r.RecordSelectionFormula)}, {"group selection", deref(r.GroupSelectionFormula)}} {
+		checkFormula(f.name, f.src, "Boolean")
 	}
 	for i, g := range r.Groups {
-		where := fmt.Sprintf("group #%d", i+1)
-		if g.TopN != nil {
-			add("error", "group-topn", where, "Top N / sort by summary is not applied")
-		}
 		if g.SortOrder == "Specified" {
-			add("warning", "group-specified-order", where, "specified order is not applied; groups keep the data's order")
+			add("warning", "group-specified-order", fmt.Sprintf("group #%d", i+1), "specified order is not applied; groups keep the data's order")
 		}
 	}
 	for _, s := range r.DataSources {
@@ -275,6 +285,10 @@ func walkFormula(n node) formulaWalk {
 			note(&w.calls, "fn", n.fn)
 			for _, a := range n.args {
 				walk(a)
+			}
+		case arrayLit:
+			for _, x := range n.items {
+				walk(x)
 			}
 		case seq:
 			for _, s := range n.stmts {

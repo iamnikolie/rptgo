@@ -15,6 +15,8 @@ const (
 	itemFill                   // a filled black rectangle: a line object
 	itemBox                    // a box object: a 0.75pt frame inside its bounds
 	itemBorder                 // an object's borders, drawn inside x, y, w, h
+	itemImage                  // a picture scaled to x, y, w, h
+	itemChart                  // a chart drawn in x, y, w, h
 )
 
 type item struct {
@@ -24,6 +26,9 @@ type item struct {
 	font       font
 	align      string // Left, Center, Right
 	border     borders
+	color      string // "#RRGGBB" for text and fills; "" is black
+	image      *picture
+	chart      *chartDraw
 }
 
 type font struct {

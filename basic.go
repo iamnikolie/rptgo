@@ -364,7 +364,7 @@ func (e *evaluator) evalBasic(n node) (any, error) {
 				if err != nil {
 					return nil, err
 				}
-				if compare(subject, v) == 0 {
+				if matches(subject, v) {
 					match = true
 					break
 				}

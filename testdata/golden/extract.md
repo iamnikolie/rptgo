@@ -25,6 +25,13 @@ Report `sales.json` · printed 2026-03-31 10:00:00 · 6 records · parameters Mi
 
 **Report totals:** Amount: 5,300.00 · Maximum of Amount: 2,500.00
 
+**Chart "Amount by region"** (Report Footer; Sum of {Sales.Amount} by {Sales.Region}):
+
+| {Sales.Region} | Sum of {Sales.Amount} |
+| --- | --- |
+| East | 2,500.00 |
+| North | 2,800.00 |
+
 ## Warnings
 
 - formula @Broken not evaluated: unexpected end of formula (x1)

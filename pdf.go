@@ -63,7 +63,9 @@ func tw(v int) float64 { return float64(v) / 20 }
 func (w *pdfWriter) item(it item, page, total int) error {
 	switch it.kind {
 	case itemFill:
+		w.color(it.color)
 		w.fill(tw(it.x), tw(it.y), tw(it.w), tw(it.h))
+		w.color("")
 	case itemBox:
 		// A 0.75pt frame inside the bounds, as the HTML's border-box draws it.
 		const lw = 0.75
@@ -75,9 +77,31 @@ func (w *pdfWriter) item(it item, page, total int) error {
 	case itemBorder:
 		w.border(it)
 	case itemText:
+		w.color(it.color)
+		defer w.color("")
 		return w.text(it, pageText(it.text, page, total))
+	case itemImage:
+		return w.image(it)
+	case itemChart:
+		return w.chart(it)
 	}
 	return nil
+}
+
+// color sets the fill and text colour, "#RRGGBB"; "" is black.
+func (w *pdfWriter) color(c string) {
+	r, g, b := rgb(c)
+	w.pdf.SetFillColor(r, g, b)
+	w.pdf.SetTextColor(r, g, b)
+}
+
+// rgb reads "#RRGGBB"; anything else is black.
+func rgb(c string) (uint8, uint8, uint8) {
+	var r, g, b uint8
+	if len(c) == 7 && c[0] == '#' {
+		fmt.Sscanf(c[1:], "%02x%02x%02x", &r, &g, &b)
+	}
+	return r, g, b
 }
 
 func (w *pdfWriter) fill(x, y, width, height float64) {

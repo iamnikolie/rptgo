@@ -43,7 +43,9 @@ Usage:
                                                     what rptgo does not reproduce, and what is unused
   rptgo index <dir|report.rpt>... [-json]           catalog of many reports with cross-references
   rptgo extract <report.rpt> (-proc P [-param N=V]... | -data rows.json|.jsonl|.csv) [-json] [-max-rows N]
-                                                    the data the report prints: header, groups, rows, totals
+                [-sub Name=proc]... [-sub-data Name=file]...
+                                                    the data the report prints: header, groups, rows, totals,
+                                                    charts, cross-tabs, subreports
   rptgo render <report.rpt> (-proc P [-param N=V]... | -data FILE) -out report.pdf|.html
                                                     the report as PDF or HTML
   rptgo skill                                       guide for agents using rptgo
@@ -324,6 +326,7 @@ func cmdIndex(args []string) error {
 type dataFlags struct {
 	rpt, overlay, proc, data, printed, dumpRows *string
 	params                                      multi
+	subs, subData                               multi
 }
 
 func addDataFlags(fs *flag.FlagSet) *dataFlags {
@@ -336,6 +339,8 @@ func addDataFlags(fs *flag.FlagSet) *dataFlags {
 		dumpRows: fs.String("dump-rows", "", "also write the rows as JSON to this file (reuse them with -data)"),
 	}
 	fs.Var(&d.params, "param", "parameter Name=Value, for the procedure and the report's {?Name} (repeatable)")
+	fs.Var(&d.subs, "sub", "a subreport's rows from a procedure, Name=procedure; it gets the -param values it declares (repeatable)")
+	fs.Var(&d.subData, "sub-data", "a subreport's rows from a file, Name=file (repeatable); Name is the subreport's or its table's")
 	return d
 }
 
@@ -366,6 +371,31 @@ func (d *dataFlags) engine(path string) (*Engine, error) {
 			return nil, err
 		}
 	}
+	subRows := map[string][]Row{}
+	for _, spec := range append(append(multi{}, d.subs...), d.subData...) {
+		name, src, ok := strings.Cut(spec, "=")
+		if !ok {
+			return nil, fmt.Errorf("subreport rows %q: want Name=procedure or Name=file", spec)
+		}
+		sub := r.subreportModel(name)
+		if sub == nil {
+			return nil, fmt.Errorf("the report has no subreport or subreport table %q", name)
+		}
+		var sr []Row
+		if contains(d.subs, spec) {
+			dsn := os.Getenv("RPTGO_DSN")
+			if dsn == "" {
+				return nil, fmt.Errorf("RPTGO_DSN is not set")
+			}
+			sr, err = runSubProc(dsn, src, d.params)
+		} else {
+			sr, err = readRows(src, sub)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("subreport %s: %w", name, err)
+		}
+		subRows[name] = sr
+	}
 	when := time.Now()
 	if *d.printed != "" {
 		if when, err = time.Parse("2006-01-02 15:04:05", *d.printed); err != nil {
@@ -379,6 +409,7 @@ func (d *dataFlags) engine(path string) (*Engine, error) {
 	if err := eng.SetParams(d.params); err != nil {
 		return nil, err
 	}
+	eng.SetSubreportRows(subRows)
 	return eng, nil
 }
 

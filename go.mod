@@ -6,6 +6,7 @@ require (
 	github.com/microsoft/go-mssqldb v1.11.2
 	github.com/richardlehane/mscfb v1.0.9
 	github.com/signintech/gopdf v0.38.2
+	golang.org/x/image v0.21.0
 )
 
 require (

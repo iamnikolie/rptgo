@@ -36,9 +36,9 @@ prints a guide for an agent ([SKILL.md](SKILL.md)).
   - the layout, as rows of text and values per section, with hidden sections
     and their conditions.
 - **audit** lists, per report:
-  - what rptgo does not reproduce: subreports, charts, group selection,
-    unsupported functions, formulas it cannot parse;
-  - what may differ from Crystal: record selection, pictures;
+  - what rptgo does not reproduce: unsupported functions and summaries,
+    formulas it cannot parse, pictures it cannot read;
+  - what a run needs: the rows of each subreport;
   - what nothing uses: dead formulas, totals and parameters.
 
   `-fail-on error` turns it into a CI gate.
@@ -50,9 +50,11 @@ prints a guide for an agent ([SKILL.md](SKILL.md)).
   - header values;
   - nested groups with their header values, detail rows and footer totals,
     named after the column headings;
-  - report totals.
+  - report totals;
+  - charts, cross-tabs and subreports, as the numbers they show.
 
-  Rows come from the stored procedure or from a JSON, JSON Lines or CSV file.
+  Rows come from the stored procedure or from a JSON, JSON Lines or CSV file,
+  and a subreport's from its own (`-sub`, `-sub-data`).
   `-max-rows` trims detail rows and keeps every total.
 
 ## What is in it
@@ -60,7 +62,7 @@ prints a guide for an agent ([SKILL.md](SKILL.md)).
 | Package / command | What it does |
 |---|---|
 | `rpt` | Opens the OLE container, decrypts and inflates the `Contents` stream, walks the TSLV records and builds the report model: fields, formulas, running totals, groups, sorts, sections, objects with fonts, borders and number/date formats, lines and boxes, pictures, subreports, charts, cross-tabs, data sources |
-| `rptgo` (root) | The commands (`describe`, `audit`, `index`, `extract`, `render`) and the engine: Crystal- and Basic-syntax formulas, banded layout (report/page/group headers and footers, details), running totals and summary fields, section suppress and new-page conditions, pagination with `Page N of M`, lines that span sections and pages; writes PDF natively or HTML, or the printed data as JSON |
+| `rptgo` (root) | The commands (`describe`, `audit`, `index`, `extract`, `render`) and the engine: record and group selection, Top N, Crystal- and Basic-syntax formulas, banded layout (report/page/group headers and footers, details), running totals and summary fields, section suppress and new-page conditions, subreports, charts, cross-tabs, pictures and colours, pagination with `Page N of M`, lines that span sections and pages; writes PDF natively or HTML, or the printed data as JSON |
 | `cmd/rpt2json` | Writes the parsed model as JSON |
 | `cmd/rpttree` | Prints the record tree of a `.rpt`, with `-hex <tag>` to dump a record's bytes |
 
@@ -130,18 +132,21 @@ a zero; see `rpt/rpt_test.go`). `scripts/compare.sh` describes its
 
 `rptgo audit` reports each of these where a report uses it.
 
-- Data comes from a SQL Server stored procedure or a rows file. A report's
+- Data comes from SQL Server stored procedures or rows files. A report's
   own connection, SQL command or tables are described but not queried.
-- Record and group selection formulas are not applied: the rows are taken as
-  they come, as when an application feeds Crystal a filtered dataset.
-- Subreports, cross-tabs and charts are parsed and described, not rendered or
-  extracted. Pictures are not drawn.
-- Summary fields print only in group and report footers (not headers, which
-  would need the group's records ahead).
-- WMF/EMF pictures are not rasterized: the C# reader does that only on Windows.
+- A subreport prints only when it is given its rows (`-sub Name=procedure`
+  or `-sub-data Name=file`), as an application feeds each one a table.
+- Pictures print when they are embedded (BMP, PNG, JPEG, GIF); WMF/EMF
+  pictures and pictures read from a field or a file path do not.
+- Charts are drawn plainly (columns, stacked columns, lines, areas, pies,
+  doughnuts): the same numbers, not Crystal's chart styling.
+- A group's "specified order" is not applied.
+- A cross-tab is drawn whole where it sits and pushes the section down; it
+  does not split across pages.
 - The formula interpreter covers the functions common business reports use:
-  string, number and date functions, `Previous`/`Next`, `Sum`/`Count`/`Average`/
-  `Maximum`/`Minimum`/`DistinctCount` over the report or a group. It does not
+  string, number and date functions, `in` with lists and ranges,
+  `Previous`/`Next`, `Sum`/`Count`/`Average`/`Maximum`/`Minimum`/
+  `DistinctCount`/`StdDev`/`Variance` over the report or a group. It does not
   cover all of Crystal's.
 
 ## License

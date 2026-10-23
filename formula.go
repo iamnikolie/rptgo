@@ -136,8 +136,11 @@ type (
 		op   string
 		l, r node
 	}
-	ifExpr struct{ cond, then, els node }
-	call   struct {
+	ifExpr   struct{ cond, then, els node }
+	arrayLit struct{ items []node }
+	// valueRange is what "a to b" evaluates to.
+	valueRange struct{ lo, hi any }
+	call       struct {
 		fn   string
 		args []node
 	}
@@ -254,6 +257,7 @@ var prec = map[string]int{
 	"or": 1, "and": 2,
 	"=": 4, "<>": 4, "<": 4, ">": 4, "<=": 4, ">=": 4,
 	"&": 5, "+": 6, "-": 6, "*": 7, "/": 7, "%": 7, "mod": 7, "^": 8,
+	"in": 4, "to": 5,
 }
 
 func (p *parser) binop() (string, bool) {
@@ -264,7 +268,7 @@ func (p *parser) binop() (string, bool) {
 	}
 	if t.kind == tIdent {
 		l := strings.ToLower(t.text)
-		if l == "and" || l == "or" || l == "mod" {
+		if l == "and" || l == "or" || l == "mod" || l == "in" || l == "to" {
 			return l, true
 		}
 	}
@@ -330,6 +334,24 @@ func (p *parser) primary() (node, error) {
 	case tField:
 		return fieldRef{t.text}, nil
 	case tOp:
+		if t.text == "[" { // an array: [a, b, c]
+			var items []node
+			for !p.isOp("]") {
+				if p.peek().kind == tEOF {
+					return nil, fmt.Errorf("unclosed [")
+				}
+				x, err := p.expr(0)
+				if err != nil {
+					return nil, err
+				}
+				items = append(items, x)
+				if p.isOp(",") {
+					p.next()
+				}
+			}
+			p.next()
+			return arrayLit{items}, nil
+		}
 		if t.text == "(" {
 			x, err := p.statements()
 			if err != nil {
@@ -443,7 +465,7 @@ func (p *parser) selectExpr() (node, error) {
 	for i := len(arms) - 1; i >= 0; i-- {
 		var cond node
 		for _, v := range arms[i].values {
-			eq := binary{"=", subject, v}
+			eq := binary{"in", subject, v} // equal, or within a range ("Case 1 to 5")
 			if cond == nil {
 				cond = eq
 			} else {
@@ -483,6 +505,16 @@ func (e *evaluator) eval(n node) (any, error) {
 		return n.v, nil
 	case fieldRef:
 		return e.env.Lookup(n.ref)
+	case arrayLit:
+		out := make([]any, len(n.items))
+		for i, x := range n.items {
+			v, err := e.eval(x)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = v
+		}
+		return out, nil
 	case ident:
 		switch n.name {
 		case "true":
@@ -574,6 +606,13 @@ func (e *evaluator) binary(n binary) (any, error) {
 	switch n.op {
 	case "and", "or":
 		return truthy(r), nil
+	case "to":
+		return valueRange{l, r}, nil
+	case "in": // in [a, b], in a to b, or a substring of a string
+		if s, ok := r.(string); ok {
+			return strings.Contains(s, toText(l)), nil
+		}
+		return matches(l, r), nil
 	case "&":
 		return toText(l) + toText(r), nil
 	case "+":
@@ -637,7 +676,7 @@ var builtinFuncs = map[string]bool{
 	"cdate": true, "datevalue": true, "datediff": true, "dateadd": true, "datepart": true, "towords": true,
 	"switch": true, "previous": true, "next": true, "previousisnull": true, "nextisnull": true,
 	"groupname": true, "sum": true, "count": true, "average": true, "maximum": true, "minimum": true,
-	"distinctcount": true,
+	"distinctcount": true, "variance": true, "stddev": true, "populationvariance": true, "populationstddev": true,
 }
 
 // recordCall evaluates the functions that read other records; ok is false
@@ -666,9 +705,9 @@ func (e *evaluator) recordCall(n call) (v any, ok bool, err error) {
 		if !isRef {
 			return nil, true, fmt.Errorf("groupname() takes a field")
 		}
-		v, err := env.Lookup(ref.ref)
+		v, err := env.groupName(ref.ref)
 		return toText(v), true, err
-	case "sum", "count", "average", "maximum", "minimum", "distinctcount":
+	case "sum", "count", "average", "maximum", "minimum", "distinctcount", "variance", "stddev", "populationvariance", "populationstddev":
 		if !isRef {
 			return nil, true, fmt.Errorf("%s() takes a field", n.fn)
 		}
@@ -686,12 +725,30 @@ func (e *evaluator) recordCall(n call) (v any, ok bool, err error) {
 	return nil, false, nil
 }
 
+// matches: v equals x, lies in the range x, or matches an element of the
+// array x. Null is in no range.
+func matches(v, x any) bool {
+	switch x := x.(type) {
+	case []any:
+		for _, el := range x {
+			if matches(v, el) {
+				return true
+			}
+		}
+		return false
+	case valueRange:
+		return v != nil && compare(v, x.lo) >= 0 && compare(v, x.hi) <= 0
+	}
+	return compare(v, x) == 0
+}
+
 // recordEnv is an Env that can look at other records: Previous, Next, and
 // summaries over the report or a group (Sum({x}, {g}), Count({x}), ...).
 type recordEnv interface {
 	Env
 	atOffset(ref string, offset int) (any, error)
 	aggregate(fn, ref, group string) (any, error)
+	groupName(ref string) (any, error)
 }
 
 func (e *evaluator) call(n call) (any, error) {

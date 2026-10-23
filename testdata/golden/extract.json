@@ -130,6 +130,31 @@
     "Amount": 5300,
     "Maximum of Amount": 2500
   },
+  "objects": [
+    {
+      "section": "Report Footer",
+      "kind": "chart",
+      "name": "Amount by region",
+      "chart": {
+        "title": "Amount by region",
+        "kind": "Column",
+        "category": "{Sales.Region}",
+        "value": "Sum of {Sales.Amount}",
+        "categories": [
+          "East",
+          "North"
+        ],
+        "values": [
+          [
+            2500
+          ],
+          [
+            2800
+          ]
+        ]
+      }
+    }
+  ],
   "warnings": [
     "formula @Broken not evaluated: unexpected end of formula (x1)"
   ]

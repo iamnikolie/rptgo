@@ -125,7 +125,7 @@ _new page after when `not OnLastRecord`_
 ### Report Footer
 
 - "Grand total:" (bold) · {#GrandAmt} (`#,##0.00`) · Maximum of {Sales.Amount} (`#,##0.00`)
-- [Bar chart "Amount by region": Sum of {Sales.Amount} by {Sales.Region}]
+- [Column chart "Amount by region": Sum of {Sales.Amount} by {Sales.Region}]
 
 ### Page Footer
 
@@ -136,5 +136,4 @@ _new page after when `not OnLastRecord`_
 What rptgo does not reproduce of this report:
 
 - error [formula-syntax] {@Broken}: rptgo cannot parse it (unexpected end of formula); it prints blank
-- error [chart] Report Footer Graph1: chart "Amount by region" is not rendered
 

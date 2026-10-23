@@ -474,7 +474,7 @@
         ],
         [
           {
-            "object": "Bar chart \"Amount by region\": Sum of {Sales.Amount} by {Sales.Region}"
+            "object": "Column chart \"Amount by region\": Sum of {Sales.Amount} by {Sales.Region}"
           }
         ]
       ]
@@ -502,12 +502,6 @@
       "code": "formula-syntax",
       "where": "{@Broken}",
       "message": "rptgo cannot parse it (unexpected end of formula); it prints blank"
-    },
-    {
-      "severity": "error",
-      "code": "chart",
-      "where": "Report Footer Graph1",
-      "message": "chart \"Amount by region\" is not rendered"
     }
   ]
 }

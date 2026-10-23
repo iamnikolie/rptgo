@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"path"
 	"sort"
 	"strings"
@@ -27,20 +28,30 @@ type Engine struct {
 	ext *extractor
 	// aggs caches the summaries formulas take over the report or a group.
 	aggs map[string]any
+	// objSec is each object's section, by object name.
+	objSec map[string]int
+	// groupNum counts the innermost groups printed so far (GroupNumber).
+	groupNum int
+	// band is the section being printed (or extracted), nil between bands.
+	band *Section
+	// pics holds the decoded pictures, by object name.
+	pics map[string]*picture
 
-	pages     []*pageOut
-	page      *pageOut
-	done      []*span // multi-section lines already ended on this page
-	y         int     // twips from the top of the page
-	bottom    int     // last twip usable by bands above the page footer
-	body      int     // where the page body starts, below the page header
-	breakAt   bool    // a section asked for a new page after it
-	titlePage bool    // the first page holds the report header alone
-	row       Row
-	prevRow   Row
-	rowIdx    int // index of row in rows
-	cache     map[string]any
-	errs      map[string]int
+	// The pages being laid out, shared with the subreports this report
+	// prints (host is the report a subreport prints in, nil for the main
+	// one); originX is where the report's left edge is on the page.
+	*pager
+	host    *Engine
+	originX int
+	// subRows are the subreports' rows, by subreport or table name (lower
+	// case); subs caches each subreport's engine, by object name.
+	subRows map[string][]Row
+
+	row     Row
+	prevRow Row
+	rowIdx  int // index of row in rows
+	cache   map[string]any
+	errs    map[string]int
 }
 
 type runTotal struct {
@@ -51,6 +62,7 @@ type runTotal struct {
 	evalAt  int    // add only on a change of this group level; -1 = every record
 	evalIf  node   // add only where this formula holds; nil = always
 	value   float64
+	squares float64         // sum of squares, for the variances
 	count   int             // non-null values seen
 	seen    map[string]bool // DistinctCount: the values seen
 	extreme any             // Maximum / Minimum so far
@@ -63,6 +75,7 @@ func (rt *runTotal) add(v any) {
 	}
 	rt.count++
 	rt.value += num(v)
+	rt.squares += num(v) * num(v)
 	switch rt.fn {
 	case "DistinctCount":
 		if rt.seen == nil {
@@ -100,12 +113,41 @@ func (rt *runTotal) result() any {
 		return rt.extreme
 	case "Sum", "":
 		return rt.value
+	case "Variance", "StandardDeviation", "PopulationVariance", "PopulationStandardDeviation":
+		n := float64(rt.count)
+		if strings.HasPrefix(rt.fn, "Population") {
+			if n == 0 {
+				return nil
+			}
+		} else if n < 2 {
+			return nil
+		}
+		v := (rt.squares - rt.value*rt.value/n)
+		if strings.HasPrefix(rt.fn, "Population") {
+			v /= n
+		} else {
+			v /= n - 1
+		}
+		v = math.Max(v, 0)
+		if strings.HasSuffix(rt.fn, "Deviation") {
+			return math.Sqrt(v)
+		}
+		return v
 	}
-	return nil // StandardDeviation, Variance, Percentage, ...: not computed
+	return nil // not computed
 }
 
-// aggregates are the summary operations runTotal computes.
-var aggregates = map[string]bool{"Sum": true, "Count": true, "DistinctCount": true, "Average": true, "Maximum": true, "Minimum": true, "": true}
+// aggregates are the summary operations runTotal computes; summary fields
+// also compute Percentage (of the grand total).
+var aggregates = map[string]bool{"Sum": true, "Count": true, "DistinctCount": true, "Average": true, "Maximum": true,
+	"Minimum": true, "Variance": true, "StandardDeviation": true, "PopulationVariance": true,
+	"PopulationStandardDeviation": true, "": true}
+
+// aggregateNames maps a formula's summary function to runTotal's.
+var aggregateNames = map[string]string{"sum": "Sum", "count": "Count", "average": "Average", "maximum": "Maximum",
+	"minimum": "Minimum", "distinctcount": "DistinctCount", "variance": "Variance", "stddev": "StandardDeviation",
+	"populationvariance": "PopulationVariance", "populationstddev": "PopulationStandardDeviation",
+	"standarddeviation": "StandardDeviation", "populationstandarddeviation": "PopulationStandardDeviation"}
 
 type pageOut struct {
 	items []item
@@ -116,7 +158,20 @@ type pageOut struct {
 // instance on the page to the instance of the section it ends in (endType,
 // endLevel, endBottom twips into it), or to the bottom of the page body when
 // that section does not print on the page.
+// pager is the page layout in progress.
+type pager struct {
+	pages     []*pageOut
+	page      *pageOut
+	done      []*span // multi-section lines already ended on this page
+	y         int     // twips from the top of the page
+	bottom    int     // last twip usable by bands above the page footer
+	body      int     // where the page body starts, below the page header
+	breakAt   bool    // a section asked for a new page after it
+	titlePage bool    // the first page holds the report header alone
+}
+
 type span struct {
+	owner                    *Engine // the report whose sections end it
 	x, width, thickness, top int
 	endType                  string
 	endLevel                 int
@@ -130,7 +185,8 @@ type span struct {
 // parse is left out with a warning (in errs); what refers to it prints blank.
 func NewEngine(r *Report, ov *Overlay, rows []Row, printed time.Time) (*Engine, error) {
 	e := &Engine{rpt: r, ov: ov, rows: rows, printed: printed, formulas: map[string]node{},
-		params: map[string]any{}, conds: map[string]node{}, aggs: map[string]any{}, errs: map[string]int{}}
+		params: map[string]any{}, conds: map[string]node{}, aggs: map[string]any{}, errs: map[string]int{},
+		pics: map[string]*picture{}, pager: &pager{}, originX: r.Page.LeftMarginTwips}
 	for name, src := range r.formulas() {
 		n, err := parseAny(src, r.formulaField(name).ResultType)
 		if err != nil {
@@ -156,25 +212,16 @@ func NewEngine(r *Report, ov *Overlay, rows []Row, printed time.Time) (*Engine, 
 		}
 		e.rtots = append(e.rtots, rt)
 	}
-	// Summary fields in group and report footers total their field over the
-	// group (or the report), as a running total reset with that group.
-	for _, s := range r.Sections {
-		if s.Type != "GroupFooter" && s.Type != "ReportFooter" {
-			continue
-		}
+	// Summary fields total their field over the group of the section they
+	// sit in (the whole report outside group sections), read ahead in a
+	// header as Crystal does.
+	e.objSec = map[string]int{}
+	for i, s := range r.Sections {
 		for _, o := range s.Objects {
-			if o.SummaryFunction == nil || o.FieldName == "" {
-				continue
-			}
-			reset := -1
-			if s.Type == "GroupFooter" {
-				reset = s.GroupLevel
-			}
-			if !aggregates[*o.SummaryFunction] {
+			e.objSec[o.Name] = i
+			if o.SummaryFunction != nil && !aggregates[*o.SummaryFunction] && *o.SummaryFunction != "Percentage" {
 				e.errs[fmt.Sprintf("summary %s of %s not computed", *o.SummaryFunction, o.FieldName)]++
 			}
-			e.rtots = append(e.rtots, runTotal{name: summaryName(o), of: r.refOf(o.FieldName),
-				fn: *o.SummaryFunction, resetAt: reset, evalAt: -1})
 		}
 	}
 	return e, nil
@@ -317,6 +364,8 @@ func (e *Engine) Lookup(ref string) (any, error) {
 	switch {
 	case strings.HasPrefix(ref, "@"):
 		return e.formula(ref[1:])
+	case strings.HasPrefix(ref, "#summary:"):
+		return e.summary(strings.TrimPrefix(ref, "#summary:"))
 	case strings.HasPrefix(ref, "#"):
 		for _, rt := range e.rtots {
 			if strings.EqualFold(rt.name, ref[1:]) {
@@ -350,6 +399,11 @@ func (e *Engine) Lookup(ref string) (any, error) {
 		return e.rowIdx == len(e.rows)-1, nil
 	case "crlf":
 		return "\n", nil
+	case "groupnumber":
+		return float64(e.groupNum), nil
+	}
+	if d, ok := crConstants[strings.ToLower(ref)]; ok {
+		return d, nil
 	}
 	col := ref
 	if i := strings.LastIndexByte(ref, '.'); i >= 0 {
@@ -358,11 +412,56 @@ func (e *Engine) Lookup(ref string) (any, error) {
 	if e.row == nil {
 		return nil, nil
 	}
+	// A record Top N put in "Others" prints that name for the group's field
+	// in that group's own header and footer; elsewhere it keeps its value.
+	if b := e.band; b != nil && (b.Type == "GroupHeader" || b.Type == "GroupFooter") && b.GroupLevel < len(e.rpt.Groups) {
+		if v, ok := e.row[othersKey(b.GroupLevel)]; ok && strings.EqualFold(shortName(e.rpt.Groups[b.GroupLevel].FieldName), col) {
+			return v, nil
+		}
+	}
 	v, ok := e.row[strings.ToLower(col)]
 	if !ok {
 		return nil, fmt.Errorf("no column %s", col)
 	}
 	return v, nil
+}
+
+// crConstants are Crystal's named constants a formula may use.
+var crConstants = map[string]float64{
+	"crsunday": 1, "crmonday": 2, "crtuesday": 3, "crwednesday": 4, "crthursday": 5, "crfriday": 6, "crsaturday": 7,
+	"crjanuary": 1, "crfebruary": 2, "crmarch": 3, "crapril": 4, "crmay": 5, "crjune": 6, "crjuly": 7,
+	"craugust": 8, "crseptember": 9, "croctober": 10, "crnovember": 11, "crdecember": 12,
+}
+
+// summary is a summary field's value: its function of its field over the
+// group of the section it sits in, or over the report.
+func (e *Engine) summary(name string) (any, error) {
+	o := e.rpt.object(name)
+	if o == nil || o.SummaryFunction == nil {
+		return nil, fmt.Errorf("unknown summary %s", name)
+	}
+	level := -1
+	if i, ok := e.objSec[name]; ok {
+		if s := e.rpt.Sections[i]; s.Type == "GroupHeader" || s.Type == "GroupFooter" {
+			level = s.GroupLevel
+		}
+	}
+	ref, fn := e.rpt.refOf(o.FieldName), *o.SummaryFunction
+	if fn == "Percentage" { // of the grand total
+		part, err := e.aggregateLevel("Sum", ref, level)
+		if err != nil {
+			return nil, err
+		}
+		whole, err := e.aggregateLevel("Sum", ref, -1)
+		if err != nil || num(whole) == 0 {
+			return nil, err
+		}
+		return num(part) / num(whole) * 100, nil
+	}
+	if !aggregates[fn] {
+		return nil, nil
+	}
+	return e.aggregateLevel(fn, ref, level)
 }
 
 // atRow looks ref up as it is on record i (nil past either end).
@@ -382,13 +481,26 @@ func (e *Engine) atRow(i int, ref string) (any, error) {
 
 func (e *Engine) atOffset(ref string, offset int) (any, error) { return e.atRow(e.rowIdx+offset, ref) }
 
+// groupName is GroupName({field}): the value the current record's group on
+// that field breaks on ("Others" for a Top N rest group).
+func (e *Engine) groupName(ref string) (any, error) {
+	for l, g := range e.rpt.Groups {
+		if strings.EqualFold(display(e.rpt, e.rpt.groupRef(g)), display(e.rpt, strings.TrimSpace(ref))) && e.row != nil {
+			return e.groupKey(l, e.row), nil
+		}
+	}
+	return e.Lookup(ref)
+}
+
+// recordEnv's methods, so formulas can read other records.
+var _ recordEnv = (*Engine)(nil)
+
 // aggregate is Sum, Count, Average, Maximum, Minimum or DistinctCount of
 // ref over the report, or over the current record's group whose field is
 // group. Count counts the values that are not null.
 func (e *Engine) aggregate(fn, ref, group string) (any, error) {
-	lo, hi := 0, len(e.rows)
+	level := -1
 	if group != "" {
-		level := -1
 		for l, g := range e.rpt.Groups {
 			if strings.EqualFold(display(e.rpt, e.rpt.groupRef(g)), display(e.rpt, strings.TrimSpace(group))) {
 				level = l
@@ -397,29 +509,29 @@ func (e *Engine) aggregate(fn, ref, group string) (any, error) {
 		if level < 0 {
 			return nil, fmt.Errorf("%s(): {%s} is not a group of the report", fn, group)
 		}
-		same := func(j int) bool {
-			for l := 0; l <= level; l++ {
-				g := e.rpt.Groups[l]
-				if compare(groupValue(g, e.rows[j]), groupValue(g, e.rows[e.rowIdx])) != 0 {
-					return false
-				}
-			}
-			return true
-		}
-		lo, hi = e.rowIdx, e.rowIdx+1
-		for lo > 0 && same(lo-1) {
-			lo--
-		}
-		for hi < len(e.rows) && same(hi) {
-			hi++
-		}
 	}
+	return e.aggregateLevel(fn, ref, level)
+}
+
+// aggregateLevel summarizes ref over the current record's group at level
+// (-1: the whole report).
+func (e *Engine) aggregateLevel(fn, ref string, level int) (any, error) {
+	lo, hi := e.spanOf(level)
+	return e.aggregateSpan(fn, ref, lo, hi)
+}
+
+// aggregateSpan summarizes ref over records [lo, hi); fn is a formula's
+// name for it (sum, count, stddev, ...).
+func (e *Engine) aggregateSpan(fn, ref string, lo, hi int) (any, error) {
 	key := fmt.Sprintf("agg:%s:%s:%d:%d", fn, strings.ToLower(ref), lo, hi)
 	if v, ok := e.aggs[key]; ok {
 		return v, nil
 	}
-	rt := runTotal{fn: map[string]string{"sum": "Sum", "count": "Count", "average": "Average",
-		"maximum": "Maximum", "minimum": "Minimum", "distinctcount": "DistinctCount"}[fn]}
+	name, ok := aggregateNames[strings.ToLower(fn)]
+	if !ok {
+		name = fn // already runTotal's name
+	}
+	rt := runTotal{fn: name}
 	for i := lo; i < hi; i++ {
 		v, err := e.atRow(i, ref)
 		if err != nil {
@@ -465,21 +577,28 @@ func (e *Engine) value(ref string) any {
 
 func (e *Engine) Run() {
 	groups := e.rpt.Groups
+	e.selectRecords()
 	e.sortRows()
 	e.aggs = map[string]any{} // a sort formula may have summarized the unsorted rows
+	e.orderGroups()
+	e.selectGroups()
 
 	e.setRow(firstOrNil(e.rows))
-	if e.ext != nil {
+	e.rowIdx = 0
+	switch {
+	case e.ext != nil:
 		e.ext.start(e)
-	} else {
+	case e.host != nil: // a subreport: no page header or footer of its own
+		e.bands("ReportHeader", -1)
+	default:
 		e.newPage(true)
 	}
 
 	for i, r := range e.rows {
 		changed := len(groups) // first level whose value changes
 		if i > 0 {
-			for l, g := range groups {
-				if compare(groupValue(g, e.rows[i-1]), groupValue(g, r)) != 0 {
+			for l := range groups {
+				if compare(e.groupKey(l, e.rows[i-1]), e.groupKey(l, r)) != 0 {
 					changed = l
 					break
 				}
@@ -497,6 +616,9 @@ func (e *Engine) Run() {
 		}
 		e.setRow(r)
 		e.rowIdx = i
+		if changed < len(groups) {
+			e.groupNum++
+		}
 		e.accumulate(changed)
 		for l := changed; l < len(groups); l++ {
 			if e.ext != nil {
@@ -512,10 +634,18 @@ func (e *Engine) Run() {
 		}
 	}
 	e.bands("ReportFooter", -1)
-	if e.ext != nil {
+	if e.ext != nil || e.host != nil {
 		return
 	}
 	e.closePage(true)
+}
+
+// root is the main report's engine, which owns the pages.
+func (e *Engine) root() *Engine {
+	if e.host != nil {
+		return e.host.root()
+	}
+	return e
 }
 
 // groupValue is what a group compares: the field, or for a date grouped by
@@ -737,7 +867,7 @@ func (e *Engine) spanKeys() []string {
 func (e *Engine) endSpans(s Section, y int) {
 	for _, key := range e.spanKeys() {
 		sp := e.page.spans[key]
-		if !sp.ended && sp.endType == s.Type && sp.endLevel == s.GroupLevel {
+		if !sp.ended && sp.owner == e && sp.endType == s.Type && sp.endLevel == s.GroupLevel {
 			sp.end, sp.ended = y+sp.endBottom, true
 			e.done = append(e.done, sp)
 			delete(e.page.spans, key)
@@ -758,10 +888,10 @@ func (e *Engine) bands(typ string, level int) {
 		// after it; neither leaves a page with nothing but its header.
 		brk := e.breakAt || s.NewPageBefore || e.cond(s.NewPageBeforeFormula)
 		e.breakAt = false
-		if (brk && (e.y > e.body || e.titlePage)) || e.y+s.HeightTwips > e.bottom {
+		if (brk && (e.y > e.body || e.titlePage)) || e.y+s.HeightTwips+e.growth(s) > e.bottom {
 			e.titlePage = false
-			e.finishPage()
-			e.newPage(false)
+			e.root().finishPage()
+			e.root().newPage(false)
 		}
 		e.place(s)
 		e.breakAt = s.NewPageAfter || e.cond(s.NewPageAfterFormula)
@@ -773,12 +903,64 @@ func (e *Engine) place(s Section) {
 		return
 	}
 	e.endSpans(s, e.y)
-	e.draw(s, e.y)
-	e.y += s.HeightTwips
+	grow := e.draw(s, e.y)
+	top, page := e.y, e.page
+	e.y += s.HeightTwips + grow
+	// Subreports print their own bands from where their object sits, side
+	// by side when they sit side by side; the section ends below the one
+	// that reaches furthest, which may be on a later page. A subreport that
+	// starts after another ran onto a new page continues below it there.
+	endPage, endY := len(e.pages), e.y
+	for _, o := range subreportsOf(s) {
+		sub := e.subreport(o)
+		if sub == nil {
+			continue
+		}
+		if e.page == page {
+			e.y = top + o.Bounds.Top
+		}
+		sub.originX = e.originX + o.Bounds.Left
+		sub.Run()
+		y := e.y + max(s.HeightTwips-(o.Bounds.Top+o.Bounds.Height), 0)
+		if len(e.pages) > endPage || y > endY {
+			endPage, endY = len(e.pages), y
+		}
+	}
+	e.y = endY
 }
 
-func (e *Engine) draw(s Section, top int) {
-	left := e.rpt.Page.LeftMarginTwips
+// growth is how much taller than the section its cross-tabs print, for
+// the current record.
+func (e *Engine) growth(s Section) int {
+	g := 0
+	for _, o := range s.Objects {
+		if strings.Contains(o.Type, "CrossTab") && !o.Format.Suppress {
+			if ct := e.crossTabData(o, s); ct != nil {
+				g = max(g, ct.height()-o.Bounds.Height)
+			}
+		}
+	}
+	return g
+}
+
+// subreportsOf is a section's subreport objects that print, top first.
+func subreportsOf(s Section) []Object {
+	var out []Object
+	for _, o := range s.Objects {
+		if strings.Contains(o.Type, "Subreport") && !o.Format.Suppress && o.Report != nil {
+			out = append(out, o)
+		}
+	}
+	sort.SliceStable(out, func(a, b int) bool { return out[a].Bounds.Top < out[b].Bounds.Top })
+	return out
+}
+
+// draw draws a section's objects at top and returns how much taller a
+// cross-tab in it grew than its box.
+func (e *Engine) draw(s Section, top int) (grow int) {
+	e.band = &s
+	defer func() { e.band = nil }()
+	left := e.originX
 	for _, o := range s.Objects {
 		if o.Format.Suppress {
 			continue
@@ -801,9 +983,9 @@ func (e *Engine) draw(s Section, top int) {
 			}
 			if endType != "" {
 				// One line per run from this band down to its end section.
-				key := fmt.Sprintf("%s/%d/%d/%d", s.Type, s.GroupLevel, o.Bounds.Left, o.Bounds.Top)
+				key := fmt.Sprintf("%p/%s/%d/%d/%d", e, s.Type, s.GroupLevel, o.Bounds.Left, o.Bounds.Top)
 				if _, open := e.page.spans[key]; !open {
-					e.page.spans[key] = &span{x: x, width: o.Bounds.Width, thickness: max(o.Bounds.Width, thickness),
+					e.page.spans[key] = &span{owner: e, x: x, width: o.Bounds.Width, thickness: max(o.Bounds.Width, thickness),
 						top: y, endType: endType, endLevel: endLevel, endBottom: endBottom, untilReportEnd: inferred}
 				}
 				continue
@@ -812,18 +994,35 @@ func (e *Engine) draw(s Section, top int) {
 			e.page.add(item{kind: itemFill, x: x, y: y, w: max(o.Bounds.Width, thickness), h: max(h, thickness)})
 		case strings.Contains(o.Type, "Box"):
 			e.page.add(item{kind: itemBox, x: x, y: y, w: o.Bounds.Width, h: o.Bounds.Height})
+		case strings.Contains(o.Type, "Image"):
+			if p := e.picture(o); p != nil {
+				e.page.add(item{kind: itemImage, x: x, y: y, w: o.Bounds.Width, h: o.Bounds.Height, image: p})
+			}
+		case strings.Contains(o.Type, "CrossTab"):
+			if ct := e.crossTabData(o, s); ct != nil {
+				grow = max(grow, e.drawCrossTab(ct, o, x, y)-o.Bounds.Height)
+			}
+		case strings.Contains(o.Type, "Chart"):
+			if c := e.chartData(o, s); c != nil {
+				e.page.add(item{kind: itemChart, x: x, y: y, w: o.Bounds.Width, h: o.Bounds.Height, chart: c.draw(o.Bounds.Width, o.Bounds.Height)})
+			}
 		case strings.Contains(o.Type, "Text"):
 			txt := o.Text
 			if t, ok := e.ov.Text[txt]; ok {
 				txt = t
 			}
-			e.text(o, x, y, txt, textAlign(o.Format.HAlign), e.borderOf(o, ""))
+			e.text(o, x, y, txt, textAlign(o.Format.HAlign), e.borderOf(o, ""), e.colors(o, nil))
 		case strings.Contains(o.Type, "Field"):
 			ref := e.rpt.binding(o, e.ov)
 			txt, align := e.fieldText(ref, o)
-			e.text(o, x, y, txt, align, e.borderOf(o, ref))
+			var v any
+			if len(o.Format.Conditions) > 0 {
+				v = e.value(ref)
+			}
+			e.text(o, x, y, txt, align, e.borderOf(o, ref), e.colors(o, v))
 		}
 	}
+	return grow
 }
 
 // designOrder is the section order of Crystal's design view, which is where
@@ -1017,7 +1216,33 @@ func (e *Engine) matchAny(pats []string, ref string) bool {
 	return false
 }
 
-func (e *Engine) text(o Object, x, y int, txt, align string, border borders) {
+// textColors is an object's text colour and background, "" for none.
+type textColors struct{ fore, back string }
+
+// colors is o's colours for value v: its own, overridden by the first
+// highlighting rule the value meets (less than / greater than a threshold).
+func (e *Engine) colors(o Object, v any) textColors {
+	c := textColors{fore: deref(o.Format.ForeColor), back: deref(o.Format.BackColor)}
+	if f, ok := v.(float64); ok {
+		for _, rule := range o.Format.Conditions {
+			if (rule.Operator == "LessThan" && f < rule.Threshold) || (rule.Operator == "GreaterThan" && f > rule.Threshold) {
+				if rule.FontColor != nil {
+					c.fore = *rule.FontColor
+				}
+				if rule.BackColor != nil {
+					c.back = *rule.BackColor
+				}
+				break
+			}
+		}
+	}
+	return c
+}
+
+func (e *Engine) text(o Object, x, y int, txt, align string, border borders, c textColors) {
+	if c.back != "" {
+		e.page.add(item{kind: itemFill, x: x, y: y, w: o.Bounds.Width, h: o.Bounds.Height, color: c.back})
+	}
 	if txt == "" {
 		return
 	}
@@ -1027,5 +1252,5 @@ func (e *Engine) text(o Object, x, y int, txt, align string, border borders) {
 	}
 	f := o.Format
 	e.page.add(item{kind: itemText, x: x, y: y, w: o.Bounds.Width, h: o.Bounds.Height, text: txt, align: align,
-		font: font{name: f.FontName, size: f.FontSize, bold: f.Bold, italic: f.Italic, underline: f.Underline}})
+		font: font{name: f.FontName, size: f.FontSize, bold: f.Bold, italic: f.Italic, underline: f.Underline}, color: c.fore})
 }

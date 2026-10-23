@@ -249,8 +249,8 @@ func TestTitlePage(t *testing.T) {
 
 func TestUnsupportedSummary(t *testing.T) {
 	r, ov := salesReport(t)
-	sd := "StandardDeviation"
-	r.object("Amount2").SummaryFunction = &sd
+	op := "Op7" // a summary operation the reader names but rptgo does not know
+	r.object("Amount2").SummaryFunction = &op
 	found := false
 	for _, f := range Audit(r, ov) {
 		found = found || f.Code == "summary-function"
@@ -261,7 +261,7 @@ func TestUnsupportedSummary(t *testing.T) {
 	rows, _ := readRows("testdata/sales.rows.json", r)
 	e, _ := NewEngine(r, ov, rows, time.Now())
 	x := e.Extract("sales", nil, 0)
-	if v, ok := x.Footer.vals["Maximum of Amount"]; ok && v != nil {
-		t.Errorf("standard deviation printed %v", v)
+	if v, ok := x.Footer.vals["Op7 of Amount"]; ok && v != nil {
+		t.Errorf("an unknown summary printed %v", v)
 	}
 }
